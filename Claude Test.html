@@ -1,0 +1,1576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Promowise TAL Toolkit | Campaign Ops</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --pw-primary: #1E1E54;
+      --pw-primary-light: #eff6ff;
+      --pw-pink: #db2777;
+      --pw-purple: #7c3aed;
+      --bg-slate: #f3f4f6;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg-slate); color: #1f2937; margin: 0; overflow: hidden; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .fade-in { animation: fadeIn 0.35s ease-out forwards; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .tier-1 { background: #dcfce7; color: #166534; border-color: #86efac; }
+    .tier-2 { background: #fef9c3; color: #854d0e; border-color: #fde047; }
+    .tier-3 { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    .drop-zone { border: 2px dashed #cbd5e1; transition: all 0.2s; }
+    .drop-zone.drag-over { border-color: #3b82f6; background: #eff6ff; }
+    .pulse-dot { animation: pulse-dot 1.5s infinite; }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .sidebar-group-label { padding: 14px 20px 4px; font-size: 10px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.08em; }
+    .export-btn-primary { background: #111827; color: #fff; }
+    .export-btn-primary:hover { background: #1f2937; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // ========================
+    // ICON WRAPPER
+    // ========================
+    const Icon = ({ name, size = 18, className = "" }) => {
+      const ref = useRef(null);
+      useEffect(() => { if (ref.current) lucide.createIcons({ nodes: [ref.current] }); }, [name]);
+      return <i ref={ref} data-lucide={name} className={className} style={{ width: size, height: size, display: 'inline-block', flexShrink: 0 }}></i>;
+    };
+
+    // ========================
+    // TOAST
+    // ========================
+    const showToast = (message, type = 'success') => {
+      const colors = { success: '#10B981', error: '#EF4444', info: '#3B82F6', warn: '#F59E0B' };
+      const toast = document.createElement('div');
+      toast.textContent = message;
+      Object.assign(toast.style, {
+        position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)',
+        background: colors[type] || colors.info, color: 'white', padding: '12px 28px',
+        borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', zIndex: '9999',
+        fontSize: '13px', fontWeight: '700', letterSpacing: '0.01em', whiteSpace: 'nowrap'
+      });
+      document.body.appendChild(toast);
+      setTimeout(() => { if (document.body.contains(toast)) document.body.removeChild(toast); }, 3000);
+    };
+
+    // ========================
+    // CSV EXPORT — Always direct file download, no redirect
+    // Per SME feedback: CSV must always be a direct attachment download
+    // ========================
+    const exportToCSV = (data, filename) => {
+      if (!data || data.length === 0) { showToast('No data to export', 'error'); return; }
+      const headers = Object.keys(data[0]);
+      const csvRows = [headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(',')];
+      data.forEach(row => {
+        const values = headers.map(h => {
+          const val = row[h] == null ? '' : String(row[h]);
+          return `"${val.replace(/"/g, '""')}"`;
+        });
+        csvRows.push(values.join(','));
+      });
+      const bom = '\uFEFF'; // UTF-8 BOM for Excel compatibility
+      const blob = new Blob([bom + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename); // forces download, not navigation
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); }, 500);
+      showToast(`✓ Downloading ${filename}`);
+    };
+
+    // ========================
+    // COLUMN AUTO-DETECTION
+    // ========================
+    const COLUMN_ALIASES = {
+      company:   ['company', 'company name', 'account', 'account name', 'organization', 'org', 'company_name', 'account_name', 'name'],
+      industry:  ['industry', 'sector', 'vertical', 'industry_type', 'sub_industry', 'primary_industry', 'industry name'],
+      employees: ['employees', 'employee count', 'company size', 'headcount', 'number of employees', 'employee_count', 'num_employees', 'size', '# employees', 'employees range'],
+      revenue:   ['revenue', 'annual revenue', 'estimated revenue', 'annual_revenue', 'revenue_range', 'company_revenue', 'revenue range'],
+      country:   ['country', 'region', 'geo', 'geography', 'location', 'hq country', 'headquarters', 'hq_country', 'country/region'],
+      website:   ['website', 'domain', 'url', 'company url', 'website_url', 'company_url', 'web site', 'homepage'],
+      title:     ['title', 'job title', 'job_title', 'contact title', 'role', 'position'],
+      city:      ['city', 'hq city', 'hq_city', 'headquarters city'],
+      state:     ['state', 'hq state', 'hq_state', 'province'],
+    };
+
+    const detectColumn = (headers, type) => {
+      const aliases = COLUMN_ALIASES[type] || [];
+      const lower = headers.map(h => String(h).toLowerCase().trim());
+      for (const alias of aliases) {
+        const idx = lower.indexOf(alias);
+        if (idx >= 0) return headers[idx];
+      }
+      for (const alias of aliases) {
+        const idx = lower.findIndex(h => h.includes(alias));
+        if (idx >= 0) return headers[idx];
+      }
+      return null;
+    };
+
+    // ========================
+    // SCORING ENGINE
+    // Scores used only internally. Per SME feedback:
+    // - Never show numeric score to CM
+    // - Only show Tier 1 / Tier 2 / Tier 3 + High/Medium/Low labels
+    // - Tier assignment in summary MUST match export
+    // ========================
+    const parseEmployeeCount = (val) => {
+      if (val == null) return 0;
+      const s = String(val).replace(/,/g, '').trim();
+      if (s.includes('-')) {
+        const parts = s.split('-').map(p => parseInt(p.replace(/[^0-9]/g, '')) || 0);
+        return Math.round((parts[0] + parts[1]) / 2);
+      }
+      if (s.includes('+')) return parseInt(s) || 0;
+      const kMatch = s.match(/^(\d+(\.\d+)?)k$/i);
+      if (kMatch) return Math.round(parseFloat(kMatch[1]) * 1000);
+      return parseInt(s) || 0;
+    };
+
+    const parseRevenue = (val) => {
+      if (val == null) return 0;
+      const s = String(val).toLowerCase().replace(/[$,\s]/g, '').trim();
+      const bMatch = s.match(/^(\d+(\.\d+)?)b/); if (bMatch) return parseFloat(bMatch[1]) * 1e9;
+      const mMatch = s.match(/^(\d+(\.\d+)?)m/); if (mMatch) return parseFloat(mMatch[1]) * 1e6;
+      const kMatch = s.match(/^(\d+(\.\d+)?)k/); if (kMatch) return parseFloat(kMatch[1]) * 1e3;
+      return parseFloat(s) || 0;
+    };
+
+    const scoreAccount = (row, config, colMap) => {
+      let score = 0;
+      let maxScore = 0;
+      const reasons = [];
+
+      // Industry (weight 30)
+      if (config.industries.length > 0 && colMap.industry) {
+        maxScore += 30;
+        const rowInd = String(row[colMap.industry] || '').toLowerCase();
+        const exact = config.industries.find(i => rowInd.includes(i.toLowerCase()));
+        if (exact) { score += 30; reasons.push(`Industry: ${exact}`); }
+        else {
+          const partial = config.industries.find(i => i.toLowerCase().split(/\s+/).some(w => w.length > 3 && rowInd.includes(w)));
+          if (partial) { score += 15; reasons.push(`Partial industry: ${partial}`); }
+        }
+      }
+
+      // Employee size (weight 25)
+      if ((config.minEmployees > 0 || config.maxEmployees > 0) && colMap.employees) {
+        maxScore += 25;
+        const emp = parseEmployeeCount(row[colMap.employees]);
+        if (emp > 0) {
+          const min = config.minEmployees || 0;
+          const max = config.maxEmployees || Infinity;
+          if (emp >= min && emp <= max) { score += 25; reasons.push('Size: in range'); }
+          else if (emp >= min * 0.6 && emp <= max * 1.4) { score += 12; reasons.push('Size: near range'); }
+        }
+      }
+
+      // Geo (weight 20)
+      if (config.geos.length > 0 && colMap.country) {
+        maxScore += 20;
+        const rowGeo = String(row[colMap.country] || '').toLowerCase();
+        const match = config.geos.find(g => rowGeo.includes(g.toLowerCase()) || g.toLowerCase().includes(rowGeo));
+        if (match) { score += 20; reasons.push(`Geo: ${match}`); }
+      }
+
+      // Revenue (weight 15)
+      if (colMap.revenue) {
+        maxScore += 15;
+        const rev = parseRevenue(row[colMap.revenue]);
+        if (rev >= 50e6) { score += 15; reasons.push('Revenue: large'); }
+        else if (rev >= 10e6) { score += 10; reasons.push('Revenue: mid-market'); }
+        else if (rev >= 1e6) { score += 5; reasons.push('Revenue: SMB'); }
+      }
+
+      // Job title/function (weight 10)
+      if (config.jobFunctions.length > 0 && colMap.title) {
+        maxScore += 10;
+        const rowTitle = String(row[colMap.title] || '').toLowerCase();
+        const match = config.jobFunctions.find(jf => rowTitle.includes(jf.toLowerCase()));
+        if (match) { score += 10; reasons.push(`Title: ${match}`); }
+      }
+
+      const normalized = maxScore > 0 ? Math.round((score / maxScore) * 100) : 50;
+      return { score: normalized, reasons };
+    };
+
+    // Tier thresholds — consistent between preview table AND export
+    const assignTier = (score) => {
+      if (score >= 70) return 'Tier 1';
+      if (score >= 40) return 'Tier 2';
+      return 'Tier 3';
+    };
+
+    const TIER_LABEL = { 'Tier 1': 'High Priority', 'Tier 2': 'Medium Priority', 'Tier 3': 'Low Priority' };
+    const tierLabel = (tier) => TIER_LABEL[tier] || tier;
+
+    // Build clean export row — HIDE score, show tier + label only (SME request)
+    const buildExportRow = (row) => {
+      const clean = {};
+      Object.keys(row).forEach(k => {
+        if (k === '_score') return;                                    // hidden
+        if (k === '_tier') { clean['Tier'] = row[k]; clean['Priority Level'] = tierLabel(row[k]); return; }
+        if (k === '_reasons') { clean['Fit Reasoning'] = row[k]; return; }
+        clean[k] = row[k];
+      });
+      return clean;
+    };
+
+    // ========================
+    // TIER BADGE (no score shown)
+    // ========================
+    const TierBadge = ({ tier }) => {
+      const cls = tier === 'Tier 1' ? 'tier-1' : tier === 'Tier 2' ? 'tier-2' : 'tier-3';
+      return (
+        <span className={`${cls} inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full border whitespace-nowrap`}>
+          {tier} &mdash; {tierLabel(tier)}
+        </span>
+      );
+    };
+
+    // ========================
+    // FILE DROP ZONE
+    // ========================
+    const FileDropZone = ({ onFileLoad, acceptedFile, onClear, label = 'Drop your TAL file here' }) => {
+      const [dragOver, setDragOver] = useState(false);
+      const inputRef = useRef(null);
+
+      const processFile = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+            if (jsonData.length === 0) { showToast('File is empty or unreadable', 'error'); return; }
+            onFileLoad({ name: file.name, data: jsonData, headers: Object.keys(jsonData[0]), rowCount: jsonData.length });
+          } catch (err) {
+            showToast('Failed to parse file — ensure it is .xlsx or .csv', 'error');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      };
+
+      if (acceptedFile) {
+        return (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
+                <Icon name="file-check" size={18} className="text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-green-800 truncate max-w-xs">{acceptedFile.name}</p>
+                <p className="text-xs text-green-600">{acceptedFile.rowCount.toLocaleString()} accounts &bull; {acceptedFile.headers.length} columns</p>
+              </div>
+            </div>
+            <button onClick={onClear} className="text-green-500 hover:text-red-500 transition-colors ml-2 p-1 rounded-lg hover:bg-red-50">
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div
+          className={`drop-zone rounded-xl p-8 text-center cursor-pointer ${dragOver ? 'drag-over' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); processFile(e.dataTransfer.files[0]); }}
+          onClick={() => inputRef.current?.click()}
+        >
+          <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+            onChange={(e) => processFile(e.target.files[0])} />
+          <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+            <Icon name="upload" size={22} className="text-gray-400" />
+          </div>
+          <p className="text-sm font-bold text-gray-700">{label}</p>
+          <p className="text-xs text-gray-400 mt-1">Accepts .xlsx, .xls, .csv</p>
+        </div>
+      );
+    };
+
+    // ========================
+    // ICP CONFIG PANEL
+    // ========================
+    const ICPConfig = ({ config, setConfig }) => (
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Industries <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
+          <textarea value={config.industries.join('\n')}
+            onChange={(e) => setConfig({...config, industries: e.target.value.split('\n').filter(x => x.trim())})}
+            placeholder="Financial Services&#10;Healthcare&#10;Technology&#10;Manufacturing"
+            className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-24" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Min Employees</label>
+            <input type="number" value={config.minEmployees || ''}
+              onChange={(e) => setConfig({...config, minEmployees: parseInt(e.target.value) || 0})}
+              placeholder="e.g. 100" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Max Employees</label>
+            <input type="number" value={config.maxEmployees || ''}
+              onChange={(e) => setConfig({...config, maxEmployees: parseInt(e.target.value) || 0})}
+              placeholder="e.g. 5000" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Geographies <span className="text-gray-400 font-normal normal-case">(comma-separated)</span></label>
+          <input type="text" value={config.geos.join(', ')}
+            onChange={(e) => setConfig({...config, geos: e.target.value.split(',').map(x => x.trim()).filter(Boolean)})}
+            placeholder="United States, United Kingdom, Canada, Australia"
+            className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Job Functions / Titles <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
+          <textarea value={config.jobFunctions.join('\n')}
+            onChange={(e) => setConfig({...config, jobFunctions: e.target.value.split('\n').filter(x => x.trim())})}
+            placeholder="VP of Finance&#10;Director of IT&#10;CISO&#10;Head of Marketing"
+            className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-20" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Exclusion Keywords <span className="text-gray-400 font-normal normal-case">(company names to remove)</span></label>
+          <input type="text" value={config.exclusions.join(', ')}
+            onChange={(e) => setConfig({...config, exclusions: e.target.value.split(',').map(x => x.trim()).filter(Boolean)})}
+            placeholder="Competitor A, Competitor B"
+            className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Account Count <span className="text-gray-400 font-normal normal-case">(max records in output)</span></label>
+          <input type="number" value={config.targetCount || ''}
+            onChange={(e) => setConfig({...config, targetCount: parseInt(e.target.value) || 0})}
+            placeholder="e.g. 300 (0 = no limit)"
+            className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        </div>
+      </div>
+    );
+
+    // ========================
+    // RESULTS SUMMARY — counts must exactly match export
+    // ========================
+    const ResultsSummary = ({ results }) => {
+      const t1 = results.filter(r => r._tier === 'Tier 1').length;
+      const t2 = results.filter(r => r._tier === 'Tier 2').length;
+      const t3 = results.filter(r => r._tier === 'Tier 3').length;
+      return (
+        <div className="grid grid-cols-4 gap-3 mb-5 fade-in">
+          <div className="bg-white rounded-xl p-4 border border-gray-200 text-center">
+            <p className="text-2xl font-black text-gray-900">{results.length.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 font-semibold mt-1">Total Accounts</p>
+          </div>
+          <div className="bg-green-50 rounded-xl p-4 border border-green-200 text-center">
+            <p className="text-2xl font-black text-green-700">{t1.toLocaleString()}</p>
+            <p className="text-xs text-green-600 font-semibold mt-1">Tier 1 &mdash; High</p>
+          </div>
+          <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200 text-center">
+            <p className="text-2xl font-black text-yellow-700">{t2.toLocaleString()}</p>
+            <p className="text-xs text-yellow-600 font-semibold mt-1">Tier 2 &mdash; Medium</p>
+          </div>
+          <div className="bg-red-50 rounded-xl p-4 border border-red-200 text-center">
+            <p className="text-2xl font-black text-red-700">{t3.toLocaleString()}</p>
+            <p className="text-xs text-red-600 font-semibold mt-1">Tier 3 &mdash; Low</p>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // RESULTS TABLE — no score column
+    // ========================
+    const ResultsTable = ({ results, visibleCols }) => {
+      const [page, setPage] = useState(0);
+      const perPage = 25;
+      const totalPages = Math.ceil(results.length / perPage);
+      const pageData = results.slice(page * perPage, (page + 1) * perPage);
+
+      useEffect(() => setPage(0), [results]);
+
+      return (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden fade-in">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tier</th>
+                  {visibleCols.map(col => (
+                    <th key={col} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  ))}
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Fit Reasoning</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageData.map((row, i) => (
+                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 whitespace-nowrap"><TierBadge tier={row._tier} /></td>
+                    {visibleCols.map(col => (
+                      <td key={col} className="px-4 py-3 text-gray-700 max-w-[200px] truncate" title={String(row[col] || '')}>{row[col]}</td>
+                    ))}
+                    <td className="px-4 py-3 text-gray-500 text-xs max-w-[220px]">{row._reasons || '—'}</td>
+                  </tr>
+                ))}
+                {pageData.length === 0 && (
+                  <tr><td colSpan={visibleCols.length + 2} className="px-4 py-12 text-center text-gray-400 text-sm">No accounts match this filter</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
+              <p className="text-xs text-gray-500">Showing {page * perPage + 1}–{Math.min((page + 1) * perPage, results.length)} of {results.length.toLocaleString()}</p>
+              <div className="flex gap-2">
+                <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 disabled:opacity-30 hover:bg-gray-100 transition">← Prev</button>
+                <button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 disabled:opacity-30 hover:bg-gray-100 transition">Next →</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ========================
+    // EXPORT BAR COMPONENT
+    // ========================
+    const ExportBar = ({ results, filenamePrefix }) => {
+      if (!results || results.length === 0) return null;
+      const date = new Date().toISOString().slice(0, 10);
+
+      const handleExport = (tierFilter) => {
+        const data = tierFilter === 'all' ? results : results.filter(r => r._tier === tierFilter);
+        if (data.length === 0) { showToast(`No ${tierFilter} accounts to export`, 'warn'); return; }
+        const cleanData = data.map(buildExportRow);
+        const suffix = tierFilter === 'all' ? 'All-Tiers' : tierFilter.replace(' ', '');
+        exportToCSV(cleanData, `${filenamePrefix}_${suffix}_${date}.csv`);
+      };
+
+      const t1 = results.filter(r => r._tier === 'Tier 1').length;
+      const t2 = results.filter(r => r._tier === 'Tier 2').length;
+
+      return (
+        <div className="mt-4 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Icon name="download" size={16} className="text-gray-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-800">Download CSV</p>
+                <p className="text-xs text-gray-500">Direct file download — opens in Excel automatically</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => handleExport('all')}
+                className="px-4 py-2 text-xs font-bold bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all flex items-center gap-1.5">
+                <Icon name="download" size={12} /> All Tiers ({results.length.toLocaleString()})
+              </button>
+              <button onClick={() => handleExport('Tier 1')}
+                className="px-4 py-2 text-xs font-bold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center gap-1.5">
+                <Icon name="download" size={12} /> Tier 1 ({t1.toLocaleString()})
+              </button>
+              <button onClick={() => handleExport('Tier 2')}
+                className="px-4 py-2 text-xs font-bold bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-all flex items-center gap-1.5">
+                <Icon name="download" size={12} /> Tier 2 ({t2.toLocaleString()})
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // STEP HEADER
+    // ========================
+    const StepHeader = ({ num, label, color = 'blue' }) => (
+      <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+        <span className={`w-6 h-6 bg-${color}-600 text-white rounded-full flex items-center justify-center text-xs font-black shrink-0`}>{num}</span>
+        {label}
+      </h3>
+    );
+
+    // ========================
+    // NARROWED TAL VIEW
+    // ========================
+    const NarrowedTALView = () => {
+      const [file, setFile] = useState(null);
+      const [config, setConfig] = useState({ industries: [], minEmployees: 0, maxEmployees: 0, geos: [], jobFunctions: [], exclusions: [], targetCount: 0 });
+      const [results, setResults] = useState(null);
+      const [filterTier, setFilterTier] = useState('all');
+      const [colMap, setColMap] = useState({});
+      const [processing, setProcessing] = useState(false);
+
+      useEffect(() => {
+        if (file) {
+          const map = {};
+          Object.keys(COLUMN_ALIASES).forEach(t => { const d = detectColumn(file.headers, t); if (d) map[t] = d; });
+          setColMap(map);
+        }
+      }, [file]);
+
+      const runAnalysis = () => {
+        if (!file) { showToast('Upload a TAL file first', 'error'); return; }
+        setProcessing(true);
+        setTimeout(() => {
+          let scored = file.data.map(row => {
+            const companyName = colMap.company ? String(row[colMap.company] || '').toLowerCase() : '';
+            if (config.exclusions.some(ex => ex && companyName.includes(ex.toLowerCase()))) return null;
+            const { score, reasons } = scoreAccount(row, config, colMap);
+            return { ...row, _score: score, _tier: assignTier(score), _reasons: reasons.join(' | ') || 'Baseline fit' };
+          }).filter(Boolean);
+
+          scored.sort((a, b) => b._score - a._score);
+          if (config.targetCount > 0 && scored.length > config.targetCount) {
+            scored = scored.slice(0, config.targetCount);
+          }
+
+          setResults(scored);
+          setFilterTier('all');
+          setProcessing(false);
+          const t1 = scored.filter(r => r._tier === 'Tier 1').length;
+          const t2 = scored.filter(r => r._tier === 'Tier 2').length;
+          const t3 = scored.filter(r => r._tier === 'Tier 3').length;
+          showToast(`Done: ${scored.length} accounts — ${t1} Tier 1 | ${t2} Tier 2 | ${t3} Tier 3`);
+        }, 400);
+      };
+
+      const visibleCols = useMemo(() => {
+        if (!file) return [];
+        return ['company', 'industry', 'employees', 'country', 'revenue', 'title'].map(t => colMap[t]).filter(Boolean).slice(0, 5);
+      }, [file, colMap]);
+
+      const filteredResults = useMemo(() => {
+        if (!results) return [];
+        return filterTier === 'all' ? results : results.filter(r => r._tier === filterTier);
+      }, [results, filterTier]);
+
+      return (
+        <div className="max-w-5xl mx-auto pb-20 fade-in">
+          <div className="mb-6">
+            <h2 className="text-2xl font-black text-gray-900">Narrowed TAL Analysis</h2>
+            <p className="text-sm text-gray-500 mt-1">Upload your TAL, define ICP parameters — get tiered accounts with direct CSV export.</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-sm">
+            <StepHeader num="1" label="Upload TAL File" />
+            <FileDropZone onFileLoad={setFile} acceptedFile={file} onClear={() => { setFile(null); setResults(null); setColMap({}); }} />
+            {file && Object.keys(colMap).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 items-center">
+                <span className="text-xs text-gray-400 font-semibold">Auto-detected columns:</span>
+                {Object.entries(colMap).map(([type, col]) => (
+                  <span key={type} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">{type}: <em>{col}</em></span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-sm">
+            <StepHeader num="2" label="Define ICP Parameters" />
+            <ICPConfig config={config} setConfig={setConfig} />
+          </div>
+
+          <button onClick={runAnalysis} disabled={!file || processing}
+            className="w-full py-4 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl mb-6 text-sm">
+            {processing
+              ? <><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span> Scoring accounts...</>
+              : <><Icon name="zap" size={18} /> Run TAL Analysis</>}
+          </button>
+
+          {results && (
+            <div className="fade-in">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <StepHeader num="3" label="Results" color="green" />
+                <div className="flex flex-wrap gap-2">
+                  {['all', 'Tier 1', 'Tier 2', 'Tier 3'].map(tier => {
+                    const count = tier === 'all' ? results.length : results.filter(r => r._tier === tier).length;
+                    const isActive = filterTier === tier;
+                    const clr = tier === 'Tier 1' ? 'green' : tier === 'Tier 2' ? 'yellow' : tier === 'Tier 3' ? 'red' : 'gray';
+                    return (
+                      <button key={tier} onClick={() => setFilterTier(tier)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${isActive
+                          ? tier === 'all' ? 'bg-gray-900 text-white' : tier === 'Tier 1' ? 'bg-green-700 text-white' : tier === 'Tier 2' ? 'bg-yellow-600 text-white' : 'bg-red-700 text-white'
+                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                        {tier === 'all' ? `All (${results.length})` : `${tier} (${count})`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <ResultsSummary results={results} />
+              <ResultsTable results={filteredResults} visibleCols={visibleCols} />
+              <ExportBar results={results} filenamePrefix="Narrowed_TAL" />
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ========================
+    // EXPANDED TAL VIEW (Lookalikes)
+    // Per SME: STRICT dedup — no original TAL accounts may appear in expansion output
+    // ========================
+    const ExpandedTALView = () => {
+      const [originalFile, setOriginalFile] = useState(null);
+      const [expansionFile, setExpansionFile] = useState(null);
+      const [results, setResults] = useState(null);
+      const [processing, setProcessing] = useState(false);
+      const [colMap, setColMap] = useState({});
+      const [config, setConfig] = useState({ industries: [], minEmployees: 0, maxEmployees: 0, geos: [], jobFunctions: [], exclusions: [], targetCount: 0 });
+
+      useEffect(() => {
+        if (originalFile) {
+          const map = {};
+          Object.keys(COLUMN_ALIASES).forEach(t => { const d = detectColumn(originalFile.headers, t); if (d) map[t] = d; });
+          setColMap(map);
+        }
+      }, [originalFile]);
+
+      const normalise = (str) => String(str || '').toLowerCase().trim().replace(/[.,\s-]+/g, ' ').trim();
+      const normaliseDomain = (str) => String(str || '').toLowerCase().trim()
+        .replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/$/, '').replace(/[.,\s]+/g, '');
+
+      const runExpansion = () => {
+        if (!originalFile || !expansionFile) { showToast('Upload both files first', 'error'); return; }
+        setProcessing(true);
+
+        setTimeout(() => {
+          // Build fingerprint set from EVERY row of original TAL
+          const originalKeys = new Set();
+          originalFile.data.forEach(row => {
+            if (colMap.company) {
+              const n = normalise(row[colMap.company]);
+              if (n) originalKeys.add(n);
+            }
+            if (colMap.website) {
+              const d = normaliseDomain(row[colMap.website]);
+              if (d && d.length > 3) originalKeys.add(d);
+            }
+          });
+
+          // Detect columns on expansion file
+          const expColMap = {};
+          Object.keys(COLUMN_ALIASES).forEach(t => {
+            const d = detectColumn(expansionFile.headers, t);
+            if (d) expColMap[t] = d;
+          });
+
+          let dupsRemoved = 0;
+          let expandedAccounts = [];
+
+          expansionFile.data.forEach(row => {
+            // Strict dedup check — SME reported original accounts appearing in expansion
+            let isDup = false;
+            if (expColMap.company) {
+              const n = normalise(row[expColMap.company]);
+              if (n && originalKeys.has(n)) isDup = true;
+            }
+            if (!isDup && expColMap.website) {
+              const d = normaliseDomain(row[expColMap.website]);
+              if (d && d.length > 3 && originalKeys.has(d)) isDup = true;
+            }
+            if (isDup) { dupsRemoved++; return; }
+
+            // Apply additional exclusions
+            const companyName = expColMap.company ? normalise(row[expColMap.company]) : '';
+            if (config.exclusions.some(ex => ex && companyName.includes(ex.toLowerCase()))) { dupsRemoved++; return; }
+
+            const { score, reasons } = scoreAccount(row, config, expColMap);
+            expandedAccounts.push({ ...row, _score: score, _tier: assignTier(score), _reasons: reasons.join(' | ') || 'Expansion candidate' });
+          });
+
+          expandedAccounts.sort((a, b) => b._score - a._score);
+          if (config.targetCount > 0 && expandedAccounts.length > config.targetCount) {
+            expandedAccounts = expandedAccounts.slice(0, config.targetCount);
+          }
+
+          setResults({ accounts: expandedAccounts, dupsRemoved, expColMap });
+          setProcessing(false);
+          showToast(`Done: ${expandedAccounts.length} net-new accounts | ${dupsRemoved} originals excluded`);
+        }, 500);
+      };
+
+      const visibleCols = useMemo(() => {
+        if (!results) return [];
+        return ['company', 'industry', 'employees', 'country', 'revenue'].map(t => results.expColMap[t]).filter(Boolean).slice(0, 5);
+      }, [results]);
+
+      return (
+        <div className="max-w-5xl mx-auto pb-20 fade-in">
+          <div className="mb-6">
+            <h2 className="text-2xl font-black text-gray-900">Expanded TAL (Lookalikes)</h2>
+            <p className="text-sm text-gray-500 mt-1">Find net-new lookalike accounts. All original TAL companies are automatically excluded.</p>
+          </div>
+
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-xl mb-4 flex gap-3">
+            <Icon name="shield-check" size={18} className="text-blue-600 mt-0.5 shrink-0" />
+            <p className="text-sm text-blue-800"><strong>Strict Dedup Protection:</strong> Every company name and domain from your original TAL is excluded from the expansion output. No overlap guaranteed.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+                <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs font-black">A</span>
+                Original TAL <span className="text-gray-400 font-normal">(exclusion list)</span>
+              </h3>
+              <FileDropZone onFileLoad={setOriginalFile} acceptedFile={originalFile}
+                onClear={() => { setOriginalFile(null); setResults(null); setColMap({}); }}
+                label="Upload original TAL" />
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+                <span className="w-6 h-6 bg-purple-500 text-white rounded-full flex items-center justify-center text-xs font-black">B</span>
+                Expansion Source <span className="text-gray-400 font-normal">(prospect pool)</span>
+              </h3>
+              <FileDropZone onFileLoad={setExpansionFile} acceptedFile={expansionFile}
+                onClear={() => { setExpansionFile(null); setResults(null); }}
+                label="Upload expansion source" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-800 mb-3">ICP Parameters for Scoring</h3>
+            <ICPConfig config={config} setConfig={setConfig} />
+          </div>
+
+          <button onClick={runExpansion} disabled={!originalFile || !expansionFile || processing}
+            className="w-full py-4 bg-purple-700 text-white font-bold rounded-xl hover:bg-purple-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl mb-6 text-sm">
+            {processing
+              ? <><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span> Finding lookalikes...</>
+              : <><Icon name="users" size={18} /> Find Lookalike Accounts</>}
+          </button>
+
+          {results && (
+            <div className="fade-in">
+              {results.dupsRemoved > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 flex items-center gap-3">
+                  <div className="w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center shrink-0">
+                    <Icon name="shield-alert" size={18} className="text-orange-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-orange-800">{results.dupsRemoved.toLocaleString()} duplicate/excluded accounts removed</p>
+                    <p className="text-xs text-orange-600">These matched your original TAL by company name or domain and have been excluded.</p>
+                  </div>
+                </div>
+              )}
+              <ResultsSummary results={results.accounts} />
+              <ResultsTable results={results.accounts} visibleCols={visibleCols} />
+              <ExportBar results={results.accounts} filenamePrefix="Expanded_TAL_Lookalikes" />
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ========================
+    // SWEET SPOT GENERATOR
+    // ========================
+    const SweetSpotView = () => {
+      const [inputs, setInputs] = useState({ product: '', client: '', painPoints: '', personas: '', competitors: '', industries: '', companySize: '', regions: '', objective: '' });
+      const [result, setResult] = useState(null);
+
+      const u = (field, val) => setInputs(prev => ({...prev, [field]: val}));
+
+      const generateSweetSpot = () => {
+        if (!inputs.product && !inputs.client) { showToast('Enter the product or client name', 'error'); return; }
+        const productLabel = inputs.client ? `${inputs.product} (${inputs.client})` : inputs.product;
+        const personas = inputs.personas.split('\n').filter(Boolean);
+        const painsList = inputs.painPoints.split('\n').filter(Boolean);
+        const industriesList = inputs.industries.split(',').map(x => x.trim()).filter(Boolean);
+        const excludeList = inputs.competitors.split(',').map(x => x.trim()).filter(Boolean);
+
+        const analysis = {
+          productLabel,
+          sweetSpot: `The ideal target for ${productLabel} is ${personas.length ? personas[0] : 'senior decision-makers'} in ${industriesList.length ? industriesList.slice(0,2).join(' and ') : 'target industries'} who are actively experiencing ${painsList.length ? painsList[0] : 'operational challenges'}.`,
+          targeting: {
+            primary: personas.length ? personas : ['Define personas above'],
+            industries: industriesList.length ? industriesList : ['Define industries above'],
+            companySize: inputs.companySize || 'Not specified',
+            regions: inputs.regions || 'Not specified',
+            exclusions: excludeList,
+          },
+          painPoints: painsList.length ? painsList : ['Define pain points above'],
+          hookMessage: `${personas.length ? personas[0] : 'Leaders'} in ${industriesList.length ? industriesList[0] : 'your sector'} are losing ground to ${excludeList.length ? excludeList[0] : 'competitors'} because of ${painsList.length ? painsList[0].toLowerCase() : 'unresolved challenges'}. ${productLabel} closes that gap.`,
+          icpCriteria: {
+            mustHave: industriesList.length ? industriesList : ['Set industry filters'],
+            niceToHave: inputs.companySize ? [`${inputs.companySize} employee range`] : [],
+            exclude: excludeList,
+          }
+        };
+        setResult(analysis);
+      };
+
+      const exportICPCSV = () => {
+        if (!result) return;
+        const rows = [
+          { Field: 'Product / Client', Value: result.productLabel },
+          { Field: 'Sweet Spot', Value: result.sweetSpot },
+          { Field: 'Primary Personas', Value: result.targeting.primary.join('; ') },
+          { Field: 'Target Industries', Value: result.targeting.industries.join('; ') },
+          { Field: 'Company Size', Value: result.targeting.companySize },
+          { Field: 'Regions', Value: result.targeting.regions },
+          { Field: 'Key Pain Points', Value: result.painPoints.join('; ') },
+          { Field: 'Hook Message', Value: result.hookMessage },
+          { Field: 'Must-Have ICP', Value: result.icpCriteria.mustHave.join('; ') },
+          { Field: 'Exclude', Value: result.icpCriteria.exclude.join('; ') },
+        ];
+        exportToCSV(rows, `Sweet_Spot_${result.productLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.csv`);
+      };
+
+      const copyAsPrompt = () => {
+        if (!inputs.product && !inputs.client) { showToast('Fill in at least product or client name', 'error'); return; }
+        const prompt = `You are a senior B2B ABM Campaign Strategist. Define the sweet spot for the following campaign and generate optimal targeting parameters.
+
+Product/Client: ${inputs.product}${inputs.client ? ` | Client: ${inputs.client}` : ''}
+Campaign Objective: ${inputs.objective || 'Lead generation'}
+Key Pain Points:
+${inputs.painPoints || '[Add pain points]'}
+Target Personas (titles):
+${inputs.personas || '[Add personas]'}
+Target Industries: ${inputs.industries || '[Add industries]'}
+Company Size: ${inputs.companySize || '[Add size range]'}
+Target Regions: ${inputs.regions || '[Add regions]'}
+Competitors to Exclude: ${inputs.competitors || 'None'}
+
+Output Requirements:
+1. Sweet Spot Definition (2 sentences max)
+2. Primary Target Audience — specific Job Titles and Seniority Levels
+3. ICP Must-Haves vs Nice-to-Haves
+4. The Hook Message (one compelling sentence)
+5. 3–5 supporting proof points
+6. Recommended TAL size and tier distribution (Tier 1/2/3 %)
+7. Exclusion list`;
+
+        navigator.clipboard.writeText(prompt).then(() => showToast('Prompt copied to clipboard')).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = prompt; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+          showToast('Prompt copied to clipboard');
+        });
+      };
+
+      return (
+        <div className="max-w-3xl mx-auto pb-20 fade-in">
+          <div className="mb-6">
+            <h2 className="text-2xl font-black text-gray-900">Sweet Spot Generator</h2>
+            <p className="text-sm text-gray-500 mt-1">Map product value to market need. Export ICP as CSV or copy as a prompt for any AI assistant.</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-sm space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Product / Solution</label>
+                <input type="text" value={inputs.product} onChange={(e) => u('product', e.target.value)}
+                  placeholder="e.g. Adobe Experience Cloud"
+                  className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Client Name <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
+                <input type="text" value={inputs.client} onChange={(e) => u('client', e.target.value)}
+                  placeholder="e.g. Promowise"
+                  className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Campaign Objective</label>
+              <input type="text" value={inputs.objective} onChange={(e) => u('objective', e.target.value)}
+                placeholder="e.g. Generate 200 MQLs, expand into mid-market, displace competitor"
+                className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Key Pain Points <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
+              <textarea value={inputs.painPoints} onChange={(e) => u('painPoints', e.target.value)}
+                placeholder="Fragmented customer data&#10;Low marketing ROI visibility&#10;Manual reporting processes"
+                className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-24" />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Personas <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
+              <textarea value={inputs.personas} onChange={(e) => u('personas', e.target.value)}
+                placeholder="VP of Marketing&#10;Director of Digital&#10;CMO"
+                className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-20" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Industries</label>
+                <input type="text" value={inputs.industries} onChange={(e) => u('industries', e.target.value)}
+                  placeholder="SaaS, Fintech, Healthcare"
+                  className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Company Size</label>
+                <input type="text" value={inputs.companySize} onChange={(e) => u('companySize', e.target.value)}
+                  placeholder="200–5000 employees"
+                  className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Regions</label>
+                <input type="text" value={inputs.regions} onChange={(e) => u('regions', e.target.value)}
+                  placeholder="US, UK, ANZ"
+                  className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Competitors to Exclude</label>
+              <input type="text" value={inputs.competitors} onChange={(e) => u('competitors', e.target.value)}
+                placeholder="Salesforce, HubSpot, Marketo"
+                className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+          </div>
+
+          <div className="flex gap-3 mb-6">
+            <button onClick={generateSweetSpot}
+              className="flex-1 py-4 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all flex items-center justify-center gap-2 shadow-lg text-sm">
+              <Icon name="target" size={18} /> Generate Sweet Spot
+            </button>
+            <button onClick={copyAsPrompt}
+              className="px-6 py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg text-sm">
+              <Icon name="copy" size={16} /> Copy AI Prompt
+            </button>
+          </div>
+
+          {result && (
+            <div className="space-y-4 fade-in">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+                <h3 className="text-xs font-black text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-2"><Icon name="target" size={14} className="text-blue-600" /> Sweet Spot</h3>
+                <p className="text-gray-900 font-semibold leading-relaxed">{result.sweetSpot}</p>
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+                <h3 className="text-xs font-black text-gray-600 uppercase tracking-wider mb-4">ICP Targeting Summary</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><p className="text-gray-400 text-xs font-bold uppercase mb-1">Personas</p><p className="text-gray-800">{result.targeting.primary.join(', ')}</p></div>
+                  <div><p className="text-gray-400 text-xs font-bold uppercase mb-1">Industries</p><p className="text-gray-800">{result.targeting.industries.join(', ')}</p></div>
+                  <div><p className="text-gray-400 text-xs font-bold uppercase mb-1">Company Size</p><p className="text-gray-800">{result.targeting.companySize}</p></div>
+                  <div><p className="text-gray-400 text-xs font-bold uppercase mb-1">Regions</p><p className="text-gray-800">{result.targeting.regions}</p></div>
+                  <div><p className="text-gray-400 text-xs font-bold uppercase mb-1">Key Pain Points</p><p className="text-gray-800">{result.painPoints.join('; ')}</p></div>
+                  <div><p className="text-gray-400 text-xs font-bold uppercase mb-1">Exclude</p><p className="text-gray-800">{result.targeting.exclusions.join(', ') || 'None'}</p></div>
+                </div>
+              </div>
+              <div className="bg-green-50 rounded-2xl border border-green-200 p-6">
+                <h3 className="text-xs font-black text-green-800 uppercase tracking-wider mb-2 flex items-center gap-2"><Icon name="message-circle" size={14} className="text-green-600" /> Hook Message</h3>
+                <p className="text-green-900 font-semibold leading-relaxed italic">"{result.hookMessage}"</p>
+              </div>
+              <div className="flex justify-end">
+                <button onClick={exportICPCSV}
+                  className="px-5 py-2.5 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-gray-800 flex items-center gap-2 transition-all">
+                  <Icon name="download" size={14} /> Export ICP as CSV
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ========================
+    // PROMPT LIBRARY
+    // Full playbook knowledge base, categorised
+    // ========================
+    const PROMPT_LIBRARY = [
+      // TAL CREATION
+      { id: 'lead-validation', category: 'TAL Creation', tag: 'TAL', title: 'Lead Validation (QA)',
+        desc: 'Validate lead titles against client job functions and return a yes/no spreadsheet.',
+        prompt: `Pretend you are a lead generation campaign manager reviewing lead quality. The client is [INSERT CLIENT NAME] focusing on their [INSERT TECHNOLOGY/SECTOR] campaign. They are looking for these job functions at [INSERT JOB LEVEL]:
+
+[LIST JOB FUNCTIONS HERE]
+
+In the 'Yes/No?' column of the spreadsheet, write 'Yes' if the job title aligns with one of the above job functions. Write 'No' if it does not. If Yes, write out the matching Job Function in the 'Job Function Alignment' column. Write No for any titles that are on the border or partial alignment.
+
+Return the updated spreadsheet keeping all rows and columns identical except for filling in the 'Yes/No?' and 'Job Function Alignment' columns. Output as CSV.` },
+
+      { id: 'abm-builder', category: 'TAL Creation', tag: 'TAL', title: 'ABM Job Function List Builder',
+        desc: 'Build a deduplicated job function list for ABM targeting based on ICP parameters.',
+        prompt: `Act as a B2B ABM strategist. Build a deduplicated job FUNCTION list that best matches the target persona(s) for my ABM list based on these parameters:
+
+PRODUCT/CLIENT: [INSERT PRODUCT]
+INDUSTRY(IES): [INSERT INDUSTRY]
+SEED TITLES: [INSERT SEED TITLES]
+JOB LEVELS: [INSERT LEVELS e.g. Director, VP, C-Suite]
+REGION: [INSERT GEO]
+COMPANY SIZE: [INSERT SIZE]
+
+OUTPUT FORMAT:
+1. "Core Functions" (tight fit — use all)
+2. "Adjacent Functions" (contextual fit — use cautiously)
+3. "Exclude / Out-of-scope" (do NOT include)
+
+Rules: One function per line, no bullets, no numbering, no duplicates. Core ≤ 12, Adjacent ≤ 10.` },
+
+      { id: 'competitor-scoring', category: 'TAL Creation', tag: 'TAL', title: 'Competitor Usage Scoring',
+        desc: 'Add a competitor usage likelihood score to an existing TAL from Apollo.',
+        prompt: `I have my TAL exported from Apollo. The client wants to identify which companies are most likely using [INSERT TECHNOLOGY/COMPETITOR].
+
+Analyse the dataset and add two new columns:
+1. Competitor_Usage_Score — values: High / Medium / Low only (no numbers)
+2. Reasoning_Note — brief explanation of why each score was assigned
+
+Use objective factors like company size, industry type, tech maturity signals, and revenue range. Then generate a downloadable CSV with the enhanced data attached directly.` },
+
+      { id: 'tal-narrowing-prompt', category: 'TAL Creation', tag: 'TAL', title: 'TAL Narrowing Prompt (AI)',
+        desc: 'Use this prompt to narrow a TAL via any AI assistant when the built-in tool is not available.',
+        prompt: `You are a B2B campaign targeting specialist at a demand generation agency.
+
+I am uploading a Target Account List (TAL) as a CSV/spreadsheet. Your task is to score and tier each account.
+
+SCORING CRITERIA:
+- Industry match (High = exact, Medium = adjacent, Low = no match)
+- Company size fit (target range: [INSERT MIN]–[INSERT MAX] employees)
+- Geography (target: [INSERT REGIONS])
+- Revenue tier (target: [INSERT RANGE])
+
+TIER DEFINITIONS:
+- Tier 1 (High Priority): Meets 3+ criteria strongly
+- Tier 2 (Medium Priority): Meets 2 criteria or partial match
+- Tier 3 (Low Priority): Meets 1 or fewer criteria
+
+OUTPUT RULES:
+1. Add two columns only: "Tier" (Tier 1 / Tier 2 / Tier 3) and "Priority Level" (High Priority / Medium Priority / Low Priority)
+2. Do NOT add numeric scores — use tier labels only
+3. Do NOT include any company from the original TAL in the expansion set
+4. Output as a CSV file attachment — not a Google Sheets link, not a code block
+5. The summary count of Tier 1/2/3 must match the counts in the downloaded file
+
+Provide a brief summary BEFORE the file: total accounts, breakdown by tier, and any data quality flags.` },
+
+      // CAMPAIGN OPS
+      { id: 'campaign-opt', category: 'Campaign Ops', tag: 'Ops', title: 'Campaign Optimisation Plan',
+        desc: 'Generate a 14–30 day optimisation plan with numeric targets.',
+        prompt: `PERSONA: You are a strategic campaign optimisation copilot.
+
+TASK: Create a focused 14–30 day optimisation plan that identifies what is working and what is not, and sets realistic numeric targets.
+
+CONTEXT:
+Client: [INSERT CLIENT]
+Campaign Type: [INSERT e.g. Content Syndication, ABM, Programmatic]
+Current CPL: [INSERT]
+Target CPL: [INSERT]
+Current Volume: [INSERT delivered so far]
+Target Volume: [INSERT total target]
+Current Data:
+[PASTE WEEKLY PERFORMANCE DATA HERE]
+
+FORMAT:
+1. Snapshot Diagnosis (3 bullet points max)
+2. Numeric Targets Table (Week 1 / Week 2 / Week 3 / Week 4)
+3. Priority Actions by Lever (TAL, Creative, Partner, Budget)
+4. Risk flags to watch` },
+
+      { id: 'data-quality', category: 'Campaign Ops', tag: 'Ops', title: 'Data Quality Report',
+        desc: 'Analyse two weeks of lead data and identify systematic errors.',
+        prompt: `Act as a Campaign Analyst reporting to the Head of Operations. Generate a Data Quality Report analysing the past two weeks of data ingested from external partners.
+
+CONTEXT:
+Client: [INSERT CLIENT]
+Rejection Rate: [INSERT %]
+Main Issues Flagged: [e.g. Parameter Mismatch, Invalid Emails, Title QA fails]
+
+DATA:
+[PASTE DATA SAMPLE OR DESCRIBE ERROR PATTERNS]
+
+REQUIRED FORMAT:
+1. Executive Summary (3 sentences)
+2. Key Findings — quantify each error type (e.g. "34% of leads rejected due to parameter mismatch")
+3. Quantified Impact Table (error type | count | % of total | estimated cost impact)
+4. Root Cause Analysis
+5. Actionable Recommendations (ranked by impact)` },
+
+      { id: 'lead-shortage', category: 'Campaign Ops', tag: 'Ops', title: 'Lead Shortage Escalation Planner',
+        desc: 'Checklist and escalation draft for when a campaign is below volume target.',
+        prompt: `Act as a Senior Campaign Operations Manager. I am facing a lead shortage on the [INSERT CLIENT] campaign.
+
+Situation:
+- Target Volume: [NUMBER]
+- Delivered to Date: [NUMBER]
+- Shortfall: [NUMBER]
+- Partner Feedback: [e.g. Out of data at current CPC / Title filters too narrow]
+
+My Analysis:
+- Requalifiable leads identified: [NUMBER]
+- Possible CPC/targeting adjustments: [DESCRIBE]
+- Days remaining in campaign: [NUMBER]
+
+TASK:
+1. Generate a checklist of 3–5 specific questions to ask the partner to unlock volume NOW
+2. Draft a "Lead Shortage Escalation" message for my manager that covers: the gap, my requalification findings, and my recommended solution
+3. Suggest 2 contingency options if partner cannot deliver` },
+
+      { id: 'partner-brief', category: 'Campaign Ops', tag: 'Ops', title: 'Partner Campaign Brief Generator',
+        desc: 'Generate a structured brief to send to media partners.',
+        prompt: `You are a Campaign Manager. Generate a clear, professional partner campaign brief.
+
+CLIENT: [INSERT]
+CAMPAIGN NAME: [INSERT]
+CAMPAIGN TYPE: [Content Syndication / ABM / Programmatic / Display]
+CAMPAIGN DATES: [START] to [END]
+BUDGET / CPL: [INSERT]
+VOLUME TARGET: [INSERT leads/impressions]
+
+TARGET AUDIENCE:
+- Industries: [INSERT]
+- Job Functions: [INSERT]
+- Seniority: [INSERT]
+- Company Size: [INSERT]
+- Geographies: [INSERT]
+
+CONTENT/ASSET: [INSERT asset title and type]
+REJECTION CRITERIA: [e.g. no personal emails, title must match function list]
+REPORTING CADENCE: [Weekly / Bi-weekly]
+ESCALATION CONTACT: [INSERT]
+
+Format as a clean brief document ready to send via email.` },
+
+      // CLIENT COMMS
+      { id: 'weekly-report', category: 'Client Comms', tag: 'Client', title: 'Weekly Campaign Report',
+        desc: 'Generate a professional weekly status update for a client.',
+        prompt: `Act as a Client Success Manager. Write a professional weekly campaign status report.
+
+CLIENT: [INSERT]
+WEEK: [INSERT DATE RANGE]
+CAMPAIGN: [INSERT]
+
+PERFORMANCE DATA:
+- Leads Delivered This Week: [NUMBER]
+- Cumulative Delivered: [NUMBER]
+- Campaign Target: [NUMBER]
+- Pacing (% to goal): [%]
+- CPL This Week: [INSERT]
+- Target CPL: [INSERT]
+- Rejection Rate: [%]
+
+KEY EVENTS THIS WEEK: [INSERT any notable events, issues, optimisations]
+
+FORMAT:
+1. Performance Snapshot (bullet points with RAG status: Green / Amber / Red)
+2. Key Highlights (2–3 positives)
+3. Issues & Actions (if any)
+4. Next Week's Focus
+5. Sign-off
+
+Tone: professional, concise, client-facing. Keep under 300 words.` },
+
+      { id: 'pause-comms', category: 'Client Comms', tag: 'Client', title: 'Campaign Pause Communication',
+        desc: 'Draft a client email to communicate a campaign pause and plan to resume.',
+        prompt: `Write a professional client email communicating a campaign pause.
+
+CLIENT: [INSERT]
+CAMPAIGN: [INSERT]
+REASON FOR PAUSE: [e.g. partner data exhaustion / creative refresh needed / budget review]
+DELIVERED SO FAR: [NUMBER of INSERT TARGET]
+PAUSE START DATE: [INSERT]
+ESTIMATED RESUME DATE: [INSERT or "TBC"]
+RESOLUTION PLAN: [INSERT what we are doing to resolve it]
+
+Requirements:
+- Tone: transparent, confident, solution-focused
+- Acknowledge the impact without being defensive
+- Lead with the plan, not the problem
+- Offer a call to discuss if needed
+- Keep under 200 words` },
+
+      { id: 'qbr-deck', category: 'Client Comms', tag: 'Client', title: 'QBR / Business Review Outline',
+        desc: 'Generate a slide-by-slide outline for a quarterly business review.',
+        prompt: `You are a Senior Account Director. Create a QBR presentation outline for a client.
+
+CLIENT: [INSERT]
+PERIOD: [Q1 / Q2 / etc. YEAR]
+CAMPAIGNS COVERED: [LIST]
+TOTAL SPEND: [INSERT]
+TOTAL LEADS/OUTCOMES DELIVERED: [INSERT]
+KEY WINS: [INSERT 2–3]
+KEY CHALLENGES: [INSERT 1–2]
+UPCOMING CAMPAIGNS: [INSERT]
+
+OUTPUT: Slide-by-slide outline with:
+- Slide title
+- Key data point or visual needed
+- 2–3 bullet points of narrative per slide
+- Recommended sections: Executive Summary, Campaign Performance Deep-Dive, Data Quality, TAL Insights, H2 Recommendations, Next Steps` },
+
+      // REPORTING
+      { id: 'lookalike-report', category: 'Reporting', tag: 'Report', title: 'Lookalike Expansion Report',
+        desc: 'Summarise the results of a TAL expansion exercise for internal or client reporting.',
+        prompt: `You are a Campaign Analyst. Write a structured Lookalike Expansion Report.
+
+ORIGINAL TAL SIZE: [NUMBER]
+EXPANSION SOURCE SIZE: [NUMBER]
+NET NEW ACCOUNTS IDENTIFIED: [NUMBER]
+DUPLICATES REMOVED: [NUMBER]
+
+TIER BREAKDOWN:
+- Tier 1 (High): [NUMBER]
+- Tier 2 (Medium): [NUMBER]
+- Tier 3 (Low): [NUMBER]
+
+TOP INDUSTRIES IN EXPANSION: [LIST]
+TOP GEOGRAPHIES: [LIST]
+COMPANY SIZE DISTRIBUTION: [DESCRIBE]
+
+Include:
+1. Summary paragraph (3 sentences)
+2. Tier breakdown table
+3. Top 5 industry/geo insights
+4. Recommended activation approach per tier
+5. Next steps` },
+
+      { id: 'mid-campaign-review', category: 'Reporting', tag: 'Report', title: 'Mid-Campaign Review',
+        desc: 'Generate a structured mid-campaign health check and optimisation recommendation.',
+        prompt: `Act as a Campaign Strategist. Write a mid-campaign review report.
+
+CLIENT: [INSERT]
+CAMPAIGN TYPE: [INSERT]
+HALFWAY POINT DATE: [INSERT]
+TARGET VOLUME: [NUMBER]
+DELIVERED SO FAR: [NUMBER]
+PACING: [% delivered vs % of time elapsed]
+CPL TO DATE: [INSERT] vs Target: [INSERT]
+TOP PERFORMING SEGMENTS: [INSERT industry/title/geo]
+UNDERPERFORMING SEGMENTS: [INSERT]
+PARTNER FEEDBACK: [INSERT]
+
+Required Sections:
+1. Health Score (Red / Amber / Green) with one-line rationale
+2. What's Working
+3. What Needs Fixing
+4. Optimisation Actions (Owner: CM / Partner / Creative)
+5. Revised Forecast for campaign close` },
+    ];
+
+    const PROMPT_CATEGORIES = ['All', 'TAL Creation', 'Campaign Ops', 'Client Comms', 'Reporting'];
+    const TAG_COLORS = { TAL: 'bg-blue-100 text-blue-700', Ops: 'bg-orange-100 text-orange-700', Client: 'bg-purple-100 text-purple-700', Report: 'bg-teal-100 text-teal-700' };
+
+    const PromptLibrary = () => {
+      const [search, setSearch] = useState('');
+      const [activeCategory, setActiveCategory] = useState('All');
+      const [copiedId, setCopiedId] = useState(null);
+      const [expandedId, setExpandedId] = useState(null);
+
+      const filtered = useMemo(() => PROMPT_LIBRARY.filter(p => {
+        const matchCat = activeCategory === 'All' || p.category === activeCategory;
+        const q = search.toLowerCase();
+        const matchSearch = !q || p.title.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q) || p.tag.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+        return matchCat && matchSearch;
+      }), [search, activeCategory]);
+
+      const handleCopy = (prompt, id) => {
+        navigator.clipboard.writeText(prompt).then(() => {}).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = prompt; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+        });
+        setCopiedId(id);
+        showToast('Prompt copied!');
+        setTimeout(() => setCopiedId(null), 2500);
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto pb-20 fade-in">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-black text-gray-900">Prompt Library</h2>
+              <p className="text-sm text-gray-500 mt-1">{PROMPT_LIBRARY.length} playbook prompts — copy and paste into any AI assistant.</p>
+            </div>
+            <div className="relative">
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search prompts..."
+                className="pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-56" />
+              <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            </div>
+          </div>
+
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {PROMPT_CATEGORIES.map(cat => (
+              <button key={cat} onClick={() => setActiveCategory(cat)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${activeCategory === cat ? 'bg-[var(--pw-primary)] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                {cat} {cat !== 'All' && `(${PROMPT_LIBRARY.filter(p => p.category === cat).length})`}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {filtered.map(p => (
+              <div key={p.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between p-4 cursor-pointer" onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`${TAG_COLORS[p.tag] || 'bg-gray-100 text-gray-600'} text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0`}>{p.tag}</span>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-gray-900">{p.title}</h3>
+                      <p className="text-xs text-gray-500 truncate">{p.desc}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3 shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); handleCopy(p.prompt, p.id); }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${copiedId === p.id ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      <Icon name={copiedId === p.id ? 'check' : 'copy'} size={13} />
+                      {copiedId === p.id ? 'Copied' : 'Copy'}
+                    </button>
+                    <Icon name={expandedId === p.id ? 'chevron-up' : 'chevron-down'} size={16} className="text-gray-400" />
+                  </div>
+                </div>
+                {expandedId === p.id && (
+                  <div className="border-t border-gray-100 px-4 pb-4 pt-3 fade-in">
+                    <pre className="bg-gray-50 border border-gray-100 rounded-lg p-4 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed overflow-auto max-h-64">{p.prompt}</pre>
+                  </div>
+                )}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                <Icon name="search" size={32} className="mx-auto mb-3 text-gray-300" />
+                <p className="text-sm font-medium">No prompts match your search</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // DEPLOYMENT GUIDE VIEW
+    // ========================
+    const DeploymentView = () => {
+      const [copied, setCopied] = useState(null);
+      const copyCode = (text, id) => {
+        navigator.clipboard.writeText(text).catch(() => {});
+        setCopied(id); showToast('Copied'); setTimeout(() => setCopied(null), 2000);
+      };
+      const Option = ({ num, title, time, difficulty, desc, steps, recommended }) => (
+        <div className={`bg-white rounded-2xl border ${recommended ? 'border-blue-400 shadow-lg' : 'border-gray-200'} p-6 mb-4`}>
+          {recommended && <div className="inline-flex items-center gap-1 bg-blue-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full mb-3 uppercase tracking-wider"><Icon name="star" size={11} /> Recommended</div>}
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h3 className="text-base font-black text-gray-900">Option {num}: {title}</h3>
+              <div className="flex gap-3 mt-1">
+                <span className="text-xs text-gray-500 font-medium">{time}</span>
+                <span className={`text-xs font-bold ${difficulty === 'No code' ? 'text-green-600' : difficulty === 'Minimal' ? 'text-yellow-600' : 'text-orange-600'}`}>{difficulty}</span>
+              </div>
+            </div>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">{desc}</p>
+          <ol className="space-y-2">
+            {steps.map((step, i) => (
+              <li key={i} className="flex gap-3 text-sm">
+                <span className="w-5 h-5 bg-gray-100 rounded-full flex items-center justify-center text-xs font-bold text-gray-500 shrink-0 mt-0.5">{i+1}</span>
+                <span className="text-gray-700">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      );
+
+      return (
+        <div className="max-w-3xl mx-auto pb-20 fade-in">
+          <div className="mb-6">
+            <h2 className="text-2xl font-black text-gray-900">Deployment Guide</h2>
+            <p className="text-sm text-gray-500 mt-1">This tool is a single self-contained HTML file. No backend, no build step. Choose your hosting option below.</p>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex gap-3">
+            <Icon name="info" size={18} className="text-blue-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-blue-900">How this tool works</p>
+              <p className="text-sm text-blue-700 mt-1">Everything runs in the browser — no data leaves your machine. File processing, scoring, and CSV export all happen locally. You can host it anywhere that serves static HTML files.</p>
+            </div>
+          </div>
+
+          <Option num={1} title="GitHub Pages" time="~5 minutes" difficulty="Minimal" recommended={true}
+            desc="Free, permanent URL, version-controlled. Best for team access and future updates."
+            steps={[
+              'Create a free GitHub account at github.com if you do not have one.',
+              'Create a new repository — name it "promowise-tal-toolkit" (can be private with GitHub Pro, or public).',
+              'Upload "Claude Test.html" to the repository. Rename it to "index.html" when uploading.',
+              'Go to repository Settings → Pages → Source: Deploy from branch → main → / (root) → Save.',
+              'After ~60 seconds, your tool is live at: https://[your-username].github.io/promowise-tal-toolkit/',
+              'Share that URL with the Campaign Ops team. Bookmark it.',
+              'Future updates: simply re-upload the updated index.html file.'
+            ]} />
+
+          <Option num={2} title="Firebase Hosting" time="~15 minutes" difficulty="Minimal"
+            desc="Google infrastructure, fast CDN, custom domain support. Good if already using Google Workspace."
+            steps={[
+              'Go to console.firebase.google.com and create a new project (free Spark plan is sufficient).',
+              'In your project, click "Hosting" → Get Started.',
+              'Install Firebase CLI: open terminal and run: npm install -g firebase-tools',
+              'Login: firebase login',
+              'In a folder with your HTML file, run: firebase init hosting',
+              'Set public directory to "." and configure as single-page app: No.',
+              'Rename your HTML file to index.html in that folder.',
+              'Run: firebase deploy',
+              'You will get a URL like: https://[project-id].web.app'
+            ]} />
+
+          <Option num={3} title="Google Sites (Embed)" time="~10 minutes" difficulty="No code"
+            desc="No technical setup. Embed directly into a Google Sites page that staff already use. Limitation: some features may be restricted in iframe embed mode."
+            steps={[
+              'Open Google Sites and navigate to or create your Campaign Ops internal site.',
+              'On the page where you want the tool, click Insert → Embed → By URL.',
+              'Upload Claude Test.html to Google Drive first, then right-click → Get Link → Anyone with link can view.',
+              'Note: Google Drive HTML preview mode has limitations — use the GitHub Pages option for best results.',
+              'Alternatively, use "Embed code" option in Google Sites and paste the full contents of the HTML file.'
+            ]} />
+
+          <Option num={4} title="SharePoint / Teams Tab" time="~10 minutes" difficulty="No code"
+            desc="Best if your team lives in Microsoft 365. Add as a Teams tab for instant access."
+            steps={[
+              'Upload Claude Test.html to a SharePoint document library.',
+              'In Microsoft Teams, open the relevant channel and click the + icon to add a tab.',
+              'Choose "Website" and paste the SharePoint file URL (ensure sharing is set to your organisation).',
+              'The tool appears as a permanent tab in the channel.',
+              'Note: for SharePoint to serve HTML correctly, you may need IT to enable HTML file rendering in the library settings.'
+            ]} />
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mt-4">
+            <p className="text-sm font-bold text-yellow-900 flex items-center gap-2"><Icon name="zap" size={15} className="text-yellow-600" /> Quick local test</p>
+            <p className="text-sm text-yellow-800 mt-1">Before deploying, you can double-click the HTML file to open it in Chrome locally. All functionality works offline since everything runs client-side.</p>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // GOVERNANCE VIEW
+    // ========================
+    const GovernanceView = () => (
+      <div className="max-w-2xl mx-auto py-12 fade-in">
+        <div className="text-center mb-10">
+          <div className="w-16 h-16 bg-white rounded-2xl shadow-lg flex items-center justify-center mx-auto mb-4 border border-gray-100">
+            <Icon name="shield-check" size={32} className="text-[var(--pw-pink)]" />
+          </div>
+          <h3 className="text-2xl font-black text-gray-900 mb-2">Governance & Feedback</h3>
+          <p className="text-gray-500 text-sm max-w-sm mx-auto">Help us improve the tool. Your feedback is what drives the next iteration.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-5">
+          <a href="https://docs.google.com/forms/d/1hBm4pdNKn97g0f_e_rSAYBklHU5tqpv1b8LmtlDVFe8/edit" target="_blank" rel="noopener noreferrer"
+            className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all border border-gray-200 text-center block group">
+            <div className="mx-auto w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-[var(--pw-primary)] mb-3 group-hover:bg-[var(--pw-primary)] group-hover:text-white transition-colors">
+              <Icon name="message-square" size={22} />
+            </div>
+            <h4 className="font-bold text-gray-900 mb-1 text-sm">Feature Feedback</h4>
+            <p className="text-xs text-gray-500">Suggest scoring improvements or new tools</p>
+          </a>
+          <a href="https://forms.clickup.com/1230273/f/15he1-166877/5LYHZQJZWRN5U8C86G" target="_blank" rel="noopener noreferrer"
+            className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all border border-gray-200 text-center block group">
+            <div className="mx-auto w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center text-orange-600 mb-3 group-hover:bg-orange-600 group-hover:text-white transition-colors">
+              <Icon name="alert-triangle" size={22} />
+            </div>
+            <h4 className="font-bold text-gray-900 mb-1 text-sm">Report a Bug</h4>
+            <p className="text-xs text-gray-500">Log scoring or export issues via ClickUp</p>
+          </a>
+        </div>
+        <div className="mt-8 bg-gray-50 rounded-xl border border-gray-200 p-5">
+          <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Icon name="check-circle" size={16} className="text-green-600" /> SME Feedback Applied (v4.0)</h4>
+          <ul className="space-y-2 text-sm text-gray-600">
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> CSV always downloads directly — no Google Sheets links, no redirects</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Numeric scores removed — only Tier 1/2/3 and High/Medium/Low labels shown</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Tier counts in summary guaranteed to match downloaded CSV counts exactly</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Strict dedup on TAL expansion — original TAL accounts can never appear in lookalikes output</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Prompt Library expanded with full playbook: TAL Creation, Campaign Ops, Client Comms, Reporting</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Deployment guide added — GitHub Pages recommended for team access</li>
+          </ul>
+        </div>
+      </div>
+    );
+
+    // ========================
+    // SIDEBAR ITEM
+    // ========================
+    const SidebarItem = ({ label, icon, isActive, onClick, badge }) => (
+      <div onClick={onClick} className={`group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg cursor-pointer transition-all duration-150 ${isActive ? 'bg-blue-50 text-[var(--pw-primary)] font-bold border-l-4 border-[var(--pw-primary)]' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 border-l-4 border-transparent'}`}>
+        <Icon name={icon} className={isActive ? 'text-[var(--pw-primary)]' : 'text-gray-400 group-hover:text-gray-600'} size={17} />
+        <span className="text-sm flex-1">{label}</span>
+        {badge && <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{badge}</span>}
+      </div>
+    );
+
+    // ========================
+    // MAIN APP
+    // ========================
+    const SECTIONS = {
+      'narrow-tal':    { label: 'Narrow TAL',       icon: 'filter',      badge: 'Core',  group: 'targeting' },
+      'expand-tal':    { label: 'Expand TAL',        icon: 'users',       badge: 'Core',  group: 'targeting' },
+      'sweet-spot':    { label: 'Sweet Spot Gen',    icon: 'target',      badge: null,    group: 'targeting' },
+      'prompt-lib':    { label: 'Prompt Library',    icon: 'book-open',   badge: '12',    group: 'resources' },
+      'deploy':        { label: 'Deployment Guide',  icon: 'rocket',      badge: null,    group: 'resources' },
+      'governance':    { label: 'Governance',        icon: 'shield-check',badge: null,    group: 'resources' },
+    };
+
+    const App = () => {
+      const [active, setActive] = useState('narrow-tal');
+      const section = SECTIONS[active];
+
+      return (
+        <div className="flex h-screen w-full overflow-hidden">
+          {/* Sidebar */}
+          <aside className="w-60 bg-white border-r border-gray-200 flex flex-col shadow-sm z-20 shrink-0">
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2 mb-0.5">
+                <div className="w-7 h-7 bg-[var(--pw-primary)] rounded-lg flex items-center justify-center">
+                  <Icon name="zap" size={14} className="text-white" />
+                </div>
+                <h1 className="text-base font-extrabold text-[var(--pw-primary)] tracking-tight">Promowise TAL</h1>
+              </div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold ml-9">Campaign Ops Toolkit</p>
+            </div>
+
+            <nav className="flex-1 overflow-y-auto py-3 space-y-0.5">
+              <p className="sidebar-group-label">Targeting Tools</p>
+              {Object.entries(SECTIONS).filter(([, s]) => s.group === 'targeting').map(([key, s]) => (
+                <SidebarItem key={key} label={s.label} icon={s.icon} isActive={active === key} onClick={() => setActive(key)} badge={s.badge} />
+              ))}
+              <p className="sidebar-group-label mt-3">Resources</p>
+              {Object.entries(SECTIONS).filter(([, s]) => s.group === 'resources').map(([key, s]) => (
+                <SidebarItem key={key} label={s.label} icon={s.icon} isActive={active === key} onClick={() => setActive(key)} badge={s.badge} />
+              ))}
+            </nav>
+
+            <div className="p-4 border-t border-gray-200 space-y-2">
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 leading-relaxed">
+                <p className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Icon name="info" size={12} /> All processing is local</p>
+                No data leaves your browser. CSV downloads go directly to your device.
+              </div>
+              <div className="text-[10px] text-gray-400 text-center font-medium">v4.0 &bull; Built for Promowise Campaign Ops</div>
+            </div>
+          </aside>
+
+          {/* Main */}
+          <main className="flex-1 flex flex-col overflow-hidden bg-[var(--bg-slate)]">
+            <header className="bg-white border-b border-gray-200 h-13 px-5 py-3 flex items-center gap-3 shrink-0 shadow-sm">
+              <div className="p-1.5 rounded-lg bg-[var(--pw-primary-light)] text-[var(--pw-primary)]">
+                <Icon name={section.icon} size={16} />
+              </div>
+              <h2 className="text-sm font-bold text-gray-800">{section.label}</h2>
+            </header>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+              {active === 'narrow-tal'  && <NarrowedTALView />}
+              {active === 'expand-tal'  && <ExpandedTALView />}
+              {active === 'sweet-spot'  && <SweetSpotView />}
+              {active === 'prompt-lib'  && <PromptLibrary />}
+              {active === 'deploy'      && <DeploymentView />}
+              {active === 'governance'  && <GovernanceView />}
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
