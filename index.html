@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Promowise TAL Toolkit | Campaign Ops</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --pw-primary: #1E1E54;
+      --pw-primary-light: #eff6ff;
+      --pw-pink: #db2777;
+      --pw-purple: #7c3aed;
+      --bg-slate: #f3f4f6;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg-slate); color: #1f2937; margin: 0; overflow: hidden; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .fade-in { animation: fadeIn 0.35s ease-out forwards; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .tier-1 { background: #dcfce7; color: #166534; border-color: #86efac; }
+    .tier-2 { background: #fef9c3; color: #854d0e; border-color: #fde047; }
+    .tier-3 { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    .drop-zone { border: 2px dashed #cbd5e1; transition: all 0.2s; }
+    .drop-zone.drag-over { border-color: #3b82f6; background: #eff6ff; }
+    .pulse-dot { animation: pulse-dot 1.5s infinite; }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .sidebar-group-label { padding: 14px 20px 4px; font-size: 10px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.08em; }
+    .ai-thinking { background: linear-gradient(90deg, #f0f9ff 25%, #e0f2fe 50%, #f0f9ff 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .streaming-cursor::after { content: '▋'; animation: blink 0.7s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    pre { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // ========================
+    // ICON WRAPPER
+    // ========================
+    const Icon = ({ name, size = 18, className = "" }) => {
+      const ref = useRef(null);
+      useEffect(() => { if (ref.current) lucide.createIcons({ nodes: [ref.current] }); }, [name]);
+      return <i ref={ref} data-lucide={name} className={className} style={{ width: size, height: size, display: 'inline-block', flexShrink: 0 }}></i>;
+    };
+
+    // ========================
+    // TOAST
+    // ========================
+    const showToast = (message, type = 'success') => {
+      const colors = { success: '#10B981', error: '#EF4444', info: '#3B82F6', warn: '#F59E0B' };
+      const toast = document.createElement('div');
+      toast.textContent = message;
+      Object.assign(toast.style, {
+        position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)',
+        background: colors[type] || colors.info, color: 'white', padding: '12px 28px',
+        borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', zIndex: '9999',
+        fontSize: '13px', fontWeight: '700', letterSpacing: '0.01em', whiteSpace: 'nowrap'
+      });
+      document.body.appendChild(toast);
+      setTimeout(() => { if (document.body.contains(toast)) document.body.removeChild(toast); }, 3200);
+    };
+
+    // ========================
+    // API KEY STORAGE (localStorage only — never leaves browser)
+    // ========================
+    const API_KEY_STORAGE = 'pw_claude_api_key';
+    const getStoredKey = () => { try { return localStorage.getItem(API_KEY_STORAGE) || ''; } catch { return ''; } };
+    const storeKey = (key) => { try { localStorage.setItem(API_KEY_STORAGE, key); } catch {} };
+    const clearKey = () => { try { localStorage.removeItem(API_KEY_STORAGE); } catch {} };
+
+    // ========================
+    // CLAUDE API CALL (streaming)
+    // ========================
+    const callClaude = async (apiKey, systemPrompt, userMessage, onChunk, onDone, onError, signal) => {
+      try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+            'anthropic-dangerous-direct-browser-calls': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-opus-4-5',
+            max_tokens: 4096,
+            stream: true,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userMessage }]
+          }),
+          signal
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          let msg = `API error ${response.status}`;
+          try { const j = JSON.parse(errText); msg = j.error?.message || msg; } catch {}
+          onError(msg); return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  onChunk(parsed.delta.text);
+                }
+              } catch {}
+            }
+          }
+        }
+        onDone();
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        onError(err.message || 'Network error');
+      }
+    };
+
+    // ========================
+    // CSV EXPORT
+    // ========================
+    const exportToCSV = (data, filename) => {
+      if (!data || data.length === 0) { showToast('No data to export', 'error'); return; }
+      const headers = Object.keys(data[0]);
+      const csvRows = [headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(',')];
+      data.forEach(row => {
+        const values = headers.map(h => {
+          const val = row[h] == null ? '' : String(row[h]);
+          return `"${val.replace(/"/g, '""')}"`;
+        });
+        csvRows.push(values.join(','));
+      });
+      const bom = '\uFEFF';
+      const blob = new Blob([bom + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); }, 500);
+      showToast(`✓ Downloading ${filename}`);
+    };
+
+    // ========================
+    // COLUMN AUTO-DETECTION
+    // ========================
+    const COLUMN_ALIASES = {
+      company:   ['company', 'company name', 'account', 'account name', 'organization', 'org', 'company_name', 'account_name', 'name'],
+      industry:  ['industry', 'sector', 'vertical', 'industry_type', 'sub_industry', 'primary_industry', 'industry name'],
+      employees: ['employees', 'employee count', 'company size', 'headcount', 'number of employees', 'employee_count', 'num_employees', 'size', '# employees', 'employees range'],
+      revenue:   ['revenue', 'annual revenue', 'estimated revenue', 'annual_revenue', 'revenue_range', 'company_revenue', 'revenue range'],
+      country:   ['country', 'region', 'geo', 'geography', 'location', 'hq country', 'headquarters', 'hq_country', 'country/region'],
+      website:   ['website', 'domain', 'url', 'company url', 'website_url', 'company_url', 'web site', 'homepage'],
+      title:     ['title', 'job title', 'job_title', 'contact title', 'role', 'position'],
+      city:      ['city', 'hq city', 'hq_city', 'headquarters city'],
+      state:     ['state', 'hq state', 'hq_state', 'province'],
+    };
+
+    const detectColumn = (headers, type) => {
+      const aliases = COLUMN_ALIASES[type] || [];
+      const lower = headers.map(h => String(h).toLowerCase().trim());
+      for (const alias of aliases) { const idx = lower.indexOf(alias); if (idx >= 0) return headers[idx]; }
+      for (const alias of aliases) { const idx = lower.findIndex(h => h.includes(alias)); if (idx >= 0) return headers[idx]; }
+      return null;
+    };
+
+    // ========================
+    // SCORING ENGINE (rule-based fallback)
+    // ========================
+    const parseEmployeeCount = (val) => {
+      if (val == null) return 0;
+      const s = String(val).replace(/,/g, '').trim();
+      if (s.includes('-')) { const parts = s.split('-').map(p => parseInt(p.replace(/[^0-9]/g, '')) || 0); return Math.round((parts[0] + parts[1]) / 2); }
+      if (s.includes('+')) return parseInt(s) || 0;
+      const kMatch = s.match(/^(\d+(\.\d+)?)k$/i); if (kMatch) return Math.round(parseFloat(kMatch[1]) * 1000);
+      return parseInt(s) || 0;
+    };
+
+    const parseRevenue = (val) => {
+      if (val == null) return 0;
+      const s = String(val).toLowerCase().replace(/[$,\s]/g, '').trim();
+      const bMatch = s.match(/^(\d+(\.\d+)?)b/); if (bMatch) return parseFloat(bMatch[1]) * 1e9;
+      const mMatch = s.match(/^(\d+(\.\d+)?)m/); if (mMatch) return parseFloat(mMatch[1]) * 1e6;
+      const kMatch = s.match(/^(\d+(\.\d+)?)k/); if (kMatch) return parseFloat(kMatch[1]) * 1e3;
+      return parseFloat(s) || 0;
+    };
+
+    const scoreAccount = (row, config, colMap) => {
+      let score = 0; let maxScore = 0; const reasons = [];
+      if (config.industries.length > 0 && colMap.industry) {
+        maxScore += 30;
+        const rowInd = String(row[colMap.industry] || '').toLowerCase();
+        const exact = config.industries.find(i => rowInd.includes(i.toLowerCase()));
+        if (exact) { score += 30; reasons.push(`Industry: ${exact}`); }
+        else { const partial = config.industries.find(i => i.toLowerCase().split(/\s+/).some(w => w.length > 3 && rowInd.includes(w))); if (partial) { score += 15; reasons.push(`Partial industry: ${partial}`); } }
+      }
+      if ((config.minEmployees > 0 || config.maxEmployees > 0) && colMap.employees) {
+        maxScore += 25; const emp = parseEmployeeCount(row[colMap.employees]);
+        if (emp > 0) { const min = config.minEmployees || 0; const max = config.maxEmployees || Infinity; if (emp >= min && emp <= max) { score += 25; reasons.push('Size: in range'); } else if (emp >= min * 0.6 && emp <= max * 1.4) { score += 12; reasons.push('Size: near range'); } }
+      }
+      if (config.geos.length > 0 && colMap.country) {
+        maxScore += 20; const rowGeo = String(row[colMap.country] || '').toLowerCase();
+        const match = config.geos.find(g => rowGeo.includes(g.toLowerCase()) || g.toLowerCase().includes(rowGeo));
+        if (match) { score += 20; reasons.push(`Geo: ${match}`); }
+      }
+      if (colMap.revenue) {
+        maxScore += 15; const rev = parseRevenue(row[colMap.revenue]);
+        if (rev >= 50e6) { score += 15; reasons.push('Revenue: large'); } else if (rev >= 10e6) { score += 10; reasons.push('Revenue: mid-market'); } else if (rev >= 1e6) { score += 5; reasons.push('Revenue: SMB'); }
+      }
+      if (config.jobFunctions.length > 0 && colMap.title) {
+        maxScore += 10; const rowTitle = String(row[colMap.title] || '').toLowerCase();
+        const match = config.jobFunctions.find(jf => rowTitle.includes(jf.toLowerCase()));
+        if (match) { score += 10; reasons.push(`Title: ${match}`); }
+      }
+      return { score: maxScore > 0 ? Math.round((score / maxScore) * 100) : 50, reasons };
+    };
+
+    const assignTier = (score) => score >= 70 ? 'Tier 1' : score >= 40 ? 'Tier 2' : 'Tier 3';
+    const TIER_LABEL = { 'Tier 1': 'High Priority', 'Tier 2': 'Medium Priority', 'Tier 3': 'Low Priority' };
+    const tierLabel = (tier) => TIER_LABEL[tier] || tier;
+
+    const buildExportRow = (row) => {
+      const clean = {};
+      Object.keys(row).forEach(k => {
+        if (k === '_score') return;
+        if (k === '_tier') { clean['Tier'] = row[k]; clean['Priority Level'] = tierLabel(row[k]); return; }
+        if (k === '_reasons') { clean['Fit Reasoning'] = row[k]; return; }
+        clean[k] = row[k];
+      });
+      return clean;
+    };
+
+    // ========================
+    // SHARED COMPONENTS
+    // ========================
+    const TierBadge = ({ tier }) => {
+      const cls = tier === 'Tier 1' ? 'tier-1' : tier === 'Tier 2' ? 'tier-2' : 'tier-3';
+      return <span className={`${cls} inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full border whitespace-nowrap`}>{tier} — {tierLabel(tier)}</span>;
+    };
+
+    const FileDropZone = ({ onFileLoad, acceptedFile, onClear, label = 'Drop your TAL file here' }) => {
+      const [dragOver, setDragOver] = useState(false);
+      const inputRef = useRef(null);
+      const processFile = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+            if (jsonData.length === 0) { showToast('File is empty or unreadable', 'error'); return; }
+            onFileLoad({ name: file.name, data: jsonData, headers: Object.keys(jsonData[0]), rowCount: jsonData.length });
+          } catch { showToast('Failed to parse file — ensure .xlsx or .csv', 'error'); }
+        };
+        reader.readAsArrayBuffer(file);
+      };
+      if (acceptedFile) return (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center shrink-0"><Icon name="file-check" size={18} className="text-green-600" /></div>
+            <div><p className="text-sm font-bold text-green-800 truncate max-w-xs">{acceptedFile.name}</p><p className="text-xs text-green-600">{acceptedFile.rowCount.toLocaleString()} accounts · {acceptedFile.headers.length} columns</p></div>
+          </div>
+          <button onClick={onClear} className="text-green-500 hover:text-red-500 transition-colors ml-2 p-1 rounded-lg hover:bg-red-50"><Icon name="x" size={16} /></button>
+        </div>
+      );
+      return (
+        <div className={`drop-zone rounded-xl p-8 text-center cursor-pointer ${dragOver ? 'drag-over' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); processFile(e.dataTransfer.files[0]); }}
+          onClick={() => inputRef.current?.click()}>
+          <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => processFile(e.target.files[0])} />
+          <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3"><Icon name="upload" size={22} className="text-gray-400" /></div>
+          <p className="text-sm font-bold text-gray-700">{label}</p>
+          <p className="text-xs text-gray-400 mt-1">Accepts .xlsx, .xls, .csv</p>
+        </div>
+      );
+    };
+
+    const ICPConfig = ({ config, setConfig }) => (
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Industries <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
+          <textarea value={config.industries.join('\n')} onChange={(e) => setConfig({...config, industries: e.target.value.split('\n').filter(x => x.trim())})}
+            placeholder="Financial Services&#10;Healthcare&#10;Technology" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-20" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Min Employees</label>
+            <input type="number" value={config.minEmployees || ''} onChange={(e) => setConfig({...config, minEmployees: parseInt(e.target.value) || 0})} placeholder="e.g. 100" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" /></div>
+          <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Max Employees</label>
+            <input type="number" value={config.maxEmployees || ''} onChange={(e) => setConfig({...config, maxEmployees: parseInt(e.target.value) || 0})} placeholder="e.g. 5000" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" /></div>
+        </div>
+        <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Geographies <span className="text-gray-400 font-normal normal-case">(comma-separated)</span></label>
+          <input type="text" value={config.geos.join(', ')} onChange={(e) => setConfig({...config, geos: e.target.value.split(',').map(x => x.trim()).filter(Boolean)})} placeholder="United States, United Kingdom, Canada" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" /></div>
+        <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Job Functions / Titles <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
+          <textarea value={config.jobFunctions.join('\n')} onChange={(e) => setConfig({...config, jobFunctions: e.target.value.split('\n').filter(x => x.trim())})} placeholder="VP of Finance&#10;Director of IT&#10;CISO" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-20" /></div>
+        <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Exclusion Keywords</label>
+          <input type="text" value={config.exclusions.join(', ')} onChange={(e) => setConfig({...config, exclusions: e.target.value.split(',').map(x => x.trim()).filter(Boolean)})} placeholder="Competitor A, Competitor B" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" /></div>
+        <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Account Count <span className="text-gray-400 font-normal normal-case">(0 = no limit)</span></label>
+          <input type="number" value={config.targetCount || ''} onChange={(e) => setConfig({...config, targetCount: parseInt(e.target.value) || 0})} placeholder="e.g. 300" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" /></div>
+      </div>
+    );
+
+    const ResultsSummary = ({ results }) => {
+      const t1 = results.filter(r => r._tier === 'Tier 1').length;
+      const t2 = results.filter(r => r._tier === 'Tier 2').length;
+      const t3 = results.filter(r => r._tier === 'Tier 3').length;
+      return (
+        <div className="grid grid-cols-4 gap-3 mb-5 fade-in">
+          <div className="bg-white rounded-xl p-4 border border-gray-200 text-center"><p className="text-2xl font-black text-gray-900">{results.length.toLocaleString()}</p><p className="text-xs text-gray-500 font-semibold mt-1">Total Accounts</p></div>
+          <div className="bg-green-50 rounded-xl p-4 border border-green-200 text-center"><p className="text-2xl font-black text-green-700">{t1.toLocaleString()}</p><p className="text-xs text-green-600 font-semibold mt-1">Tier 1 — High</p></div>
+          <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200 text-center"><p className="text-2xl font-black text-yellow-700">{t2.toLocaleString()}</p><p className="text-xs text-yellow-600 font-semibold mt-1">Tier 2 — Medium</p></div>
+          <div className="bg-red-50 rounded-xl p-4 border border-red-200 text-center"><p className="text-2xl font-black text-red-700">{t3.toLocaleString()}</p><p className="text-xs text-red-600 font-semibold mt-1">Tier 3 — Low</p></div>
+        </div>
+      );
+    };
+
+    const ResultsTable = ({ results, visibleCols }) => {
+      const [page, setPage] = useState(0);
+      const perPage = 25;
+      const totalPages = Math.ceil(results.length / perPage);
+      useEffect(() => setPage(0), [results]);
+      const pageData = results.slice(page * perPage, (page + 1) * perPage);
+      return (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden fade-in">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tier</th>
+                {visibleCols.map(col => <th key={col} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{col}</th>)}
+                <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Fit Reasoning</th>
+              </tr></thead>
+              <tbody>
+                {pageData.map((row, i) => (
+                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 whitespace-nowrap"><TierBadge tier={row._tier} /></td>
+                    {visibleCols.map(col => <td key={col} className="px-4 py-3 text-gray-700 max-w-[180px] truncate" title={String(row[col] || '')}>{row[col]}</td>)}
+                    <td className="px-4 py-3 text-gray-500 text-xs max-w-[200px]">{row._reasons || '—'}</td>
+                  </tr>
+                ))}
+                {pageData.length === 0 && <tr><td colSpan={visibleCols.length + 2} className="px-4 py-12 text-center text-gray-400 text-sm">No accounts match this filter</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
+              <p className="text-xs text-gray-500">Showing {page * perPage + 1}–{Math.min((page + 1) * perPage, results.length)} of {results.length.toLocaleString()}</p>
+              <div className="flex gap-2">
+                <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 disabled:opacity-30 hover:bg-gray-100">← Prev</button>
+                <button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 disabled:opacity-30 hover:bg-gray-100">Next →</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const ExportBar = ({ results, filenamePrefix }) => {
+      if (!results || results.length === 0) return null;
+      const date = new Date().toISOString().slice(0, 10);
+      const handleExport = (tierFilter) => {
+        const data = tierFilter === 'all' ? results : results.filter(r => r._tier === tierFilter);
+        if (data.length === 0) { showToast(`No ${tierFilter} accounts to export`, 'warn'); return; }
+        exportToCSV(data.map(buildExportRow), `${filenamePrefix}_${tierFilter === 'all' ? 'All-Tiers' : tierFilter.replace(' ', '')}_${date}.csv`);
+      };
+      const t1 = results.filter(r => r._tier === 'Tier 1').length;
+      const t2 = results.filter(r => r._tier === 'Tier 2').length;
+      return (
+        <div className="mt-4 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center"><Icon name="download" size={16} className="text-gray-600" /></div>
+              <div><p className="text-sm font-bold text-gray-800">Download CSV</p><p className="text-xs text-gray-500">Direct file download · opens in Excel</p></div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => handleExport('all')} className="px-4 py-2 text-xs font-bold bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all flex items-center gap-1.5"><Icon name="download" size={12} /> All Tiers ({results.length.toLocaleString()})</button>
+              <button onClick={() => handleExport('Tier 1')} className="px-4 py-2 text-xs font-bold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center gap-1.5"><Icon name="download" size={12} /> Tier 1 ({t1.toLocaleString()})</button>
+              <button onClick={() => handleExport('Tier 2')} className="px-4 py-2 text-xs font-bold bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-all flex items-center gap-1.5"><Icon name="download" size={12} /> Tier 2 ({t2.toLocaleString()})</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // AI ANALYSIS VIEW — The main brain. Uses Claude API directly.
+    // ========================
+    const AIAnalysisView = ({ apiKey }) => {
+      const [file, setFile] = useState(null);
+      const [mode, setMode] = useState('narrow'); // narrow | expand | validate | sweetspot | custom
+      const [expandFile, setExpandFile] = useState(null);
+      const [context, setContext] = useState({
+        client: '', product: '', industries: '', personas: '', companySize: '', geos: '', jobFunctions: '', painPoints: '', competitors: '', objective: '', targetCount: '300', customPrompt: ''
+      });
+      const [output, setOutput] = useState('');
+      const [csvData, setCsvData] = useState(null);
+      const [running, setRunning] = useState(false);
+      const [streamDone, setStreamDone] = useState(false);
+      const abortRef = useRef(null);
+      const outputRef = useRef(null);
+
+      const u = (f, v) => setContext(prev => ({...prev, [f]: v}));
+
+      useEffect(() => {
+        if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+      }, [output]);
+
+      const buildSystemPrompt = () => `You are an expert B2B campaign analyst and TAL (Target Account List) specialist at Promowise, a demand generation agency.
+
+Your role is to help Campaign Managers (CMs) analyse, tier, and optimise account lists for B2B marketing campaigns.
+
+CORE RULES — always follow these without exception:
+1. NEVER output numeric scores. Only use: Tier 1 (High Priority), Tier 2 (Medium Priority), Tier 3 (Low Priority).
+2. When outputting account data, ALWAYS include a clearly labelled section starting with: ===CSV_START=== and ending with ===CSV_END=== containing raw CSV data that can be downloaded directly.
+3. The tier counts you state in your summary text MUST exactly match the counts in the CSV output.
+4. When doing lookalike/expansion analysis, NEVER include companies that appeared in the original TAL. This is a hard rule.
+5. Keep your analysis concise and actionable. CMs are busy — lead with insights, not explanations.
+6. CSV output must include these columns in order: Company Name, Industry, Tier, Priority Level, Fit Reasoning, (plus any other original columns that were provided).
+7. Always end with a "Campaign Manager Recommendations" section with 3-5 bullet points.`;
+
+      const buildUserMessage = () => {
+        const filePreview = file ? buildFilePreview(file) : '';
+        const expandPreview = expandFile ? buildFilePreview(expandFile) : '';
+
+        const ctx = `CLIENT/PRODUCT: ${context.client || context.product || 'Not specified'}
+TARGET INDUSTRIES: ${context.industries || 'Not specified'}
+TARGET PERSONAS: ${context.personas || 'Not specified'}
+COMPANY SIZE: ${context.companySize || 'Not specified'}
+GEOGRAPHIES: ${context.geos || 'Not specified'}
+JOB FUNCTIONS: ${context.jobFunctions || 'Not specified'}
+KEY PAIN POINTS: ${context.painPoints || 'Not specified'}
+COMPETITORS TO EXCLUDE: ${context.competitors || 'None'}
+CAMPAIGN OBJECTIVE: ${context.objective || 'Lead generation'}
+TARGET ACCOUNT COUNT: ${context.targetCount || '300'}`;
+
+        if (mode === 'custom') {
+          return `${context.customPrompt}\n\nCAMPAIGN CONTEXT:\n${ctx}\n\n${filePreview ? `TAL DATA:\n${filePreview}` : ''}`;
+        }
+
+        const modeInstructions = {
+          narrow: `TASK: Narrow TAL Analysis
+
+Analyse the provided TAL and tier every account as Tier 1, Tier 2, or Tier 3 based on fit against the ICP parameters provided.
+
+SCORING LOGIC:
+- Tier 1 (High Priority): Strong match on 3+ of: industry, company size, geography, persona relevance
+- Tier 2 (Medium Priority): Partial match on 2 criteria or strong match on 1
+- Tier 3 (Low Priority): Weak or no match
+
+STEPS:
+1. State total accounts received
+2. Provide tier distribution summary (Tier 1 count, Tier 2 count, Tier 3 count)
+3. Flag any data quality issues (missing fields, suspicious values)
+4. Output full CSV with tier assignments (===CSV_START=== / ===CSV_END===)
+5. Provide 3-5 Campaign Manager Recommendations`,
+
+          expand: `TASK: TAL Expansion — Find Lookalike Accounts
+
+Original TAL provided (File A) — these companies MUST NOT appear in the output under any circumstances.
+Expansion source provided (File B) — score these against the ICP.
+
+STRICT RULES:
+- Compare every company in File B against File A by company name AND domain
+- Any match = exclude immediately, count in "duplicates removed" total
+- Only net-new accounts go into output
+
+STEPS:
+1. State: original TAL size, expansion source size, duplicates removed, net-new accounts
+2. Tier the net-new accounts
+3. Output CSV of net-new tiered accounts (===CSV_START=== / ===CSV_END===)
+4. Provide 3-5 Campaign Manager Recommendations`,
+
+          validate: `TASK: Lead Quality Validation (QA)
+
+Review every lead in the TAL. For each contact, assess whether their job title matches the target job functions/personas.
+
+OUTPUT FORMAT for each lead:
+- Yes/No: Does the title align with target job functions?
+- Job Function Alignment: Which function it maps to (or "No match")
+- Tier: Based on seniority and function fit
+
+STEPS:
+1. Summary: total leads, % qualifying, % rejected
+2. Output full CSV with validation columns added (===CSV_START=== / ===CSV_END===)
+3. Flag patterns (e.g. "42% of rejections are administrative roles — review partner filtering")
+4. Provide 3-5 Campaign Manager Recommendations`,
+
+          sweetspot: `TASK: Sweet Spot Analysis
+
+Based on the campaign context provided, define the ideal target sweet spot and generate a complete ICP profile.
+
+OUTPUT:
+1. Sweet Spot Definition (2 sentences)
+2. Primary Personas (specific titles, seniority, departments)
+3. ICP Must-Haves vs Nice-to-Haves table
+4. The Hook Message (one compelling sentence)
+5. Recommended TAL size and tier distribution %
+6. Top 5 industries ranked by fit
+7. Exclusion list with reasoning
+8. Output ICP as CSV (===CSV_START=== / ===CSV_END===) with rows: Field, Value`
+        };
+
+        return `${modeInstructions[mode] || modeInstructions.narrow}
+
+CAMPAIGN CONTEXT:
+${ctx}
+
+${filePreview ? `TAL DATA (File A):\n${filePreview}` : ''}
+${expandPreview ? `\nEXPANSION SOURCE (File B):\n${expandPreview}` : ''}`;
+      };
+
+      const buildFilePreview = (fileObj) => {
+        if (!fileObj || !fileObj.data) return '';
+        const headers = fileObj.headers.join(',');
+        const rows = fileObj.data.slice(0, 150).map(row =>
+          fileObj.headers.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(',')
+        );
+        const note = fileObj.data.length > 150 ? `\n[... ${fileObj.data.length - 150} more rows not shown in preview — analyse patterns from sample above]` : '';
+        return `File: ${fileObj.name} (${fileObj.rowCount} total accounts)\n${headers}\n${rows.join('\n')}${note}`;
+      };
+
+      const parseCSVFromOutput = (text) => {
+        const start = text.indexOf('===CSV_START===');
+        const end = text.indexOf('===CSV_END===');
+        if (start === -1 || end === -1) return null;
+        const csvText = text.slice(start + 15, end).trim();
+        const lines = csvText.split('\n').filter(l => l.trim());
+        if (lines.length < 2) return null;
+        const parseCSVLine = (line) => {
+          const result = []; let current = ''; let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            if (line[i] === '"') { if (inQuotes && line[i+1] === '"') { current += '"'; i++; } else { inQuotes = !inQuotes; } }
+            else if (line[i] === ',' && !inQuotes) { result.push(current); current = ''; }
+            else { current += line[i]; }
+          }
+          result.push(current);
+          return result;
+        };
+        const headers = parseCSVLine(lines[0]);
+        return lines.slice(1).map(line => {
+          const values = parseCSVLine(line);
+          const row = {};
+          headers.forEach((h, i) => { row[h.trim()] = (values[i] || '').trim(); });
+          return row;
+        });
+      };
+
+      const runAnalysis = async () => {
+        if (!apiKey) { showToast('Add your Claude API key in Settings first', 'error'); return; }
+        if (!file && mode !== 'sweetspot') { showToast('Upload a TAL file first', 'error'); return; }
+        if (mode === 'expand' && !expandFile) { showToast('Upload the expansion source file (File B)', 'error'); return; }
+        if (mode === 'custom' && !context.customPrompt.trim()) { showToast('Enter a custom prompt', 'error'); return; }
+
+        setRunning(true); setStreamDone(false); setOutput(''); setCsvData(null);
+        abortRef.current = new AbortController();
+
+        let fullText = '';
+        await callClaude(
+          apiKey,
+          buildSystemPrompt(),
+          buildUserMessage(),
+          (chunk) => { fullText += chunk; setOutput(fullText); },
+          () => {
+            setStreamDone(true); setRunning(false);
+            const parsed = parseCSVFromOutput(fullText);
+            if (parsed && parsed.length > 0) {
+              setCsvData(parsed);
+              showToast(`✓ Analysis complete · ${parsed.length} accounts · CSV ready`);
+            } else {
+              showToast('Analysis complete', 'success');
+            }
+          },
+          (err) => { setRunning(false); showToast(`Error: ${err}`, 'error'); setOutput(prev => prev + `\n\n❌ Error: ${err}`); },
+          abortRef.current.signal
+        );
+      };
+
+      const stopAnalysis = () => { if (abortRef.current) { abortRef.current.abort(); setRunning(false); showToast('Stopped', 'info'); } };
+
+      const downloadResult = () => {
+        if (!csvData) return;
+        const date = new Date().toISOString().slice(0, 10);
+        const prefix = { narrow: 'Narrowed_TAL', expand: 'Expanded_TAL', validate: 'Validated_Leads', sweetspot: 'Sweet_Spot_ICP', custom: 'AI_Analysis' };
+        exportToCSV(csvData, `${prefix[mode] || 'Analysis'}_${date}.csv`);
+      };
+
+      const outputTextForDisplay = streamDone
+        ? output.replace(/===CSV_START===[\s\S]*?===CSV_END===/g, `[📊 CSV data ready — use the Download button below · ${csvData ? csvData.length : 0} records]`)
+        : output;
+
+      const MODES = [
+        { id: 'narrow', label: 'Narrow TAL', icon: 'filter', color: 'blue', desc: 'Score & tier an existing TAL against ICP' },
+        { id: 'expand', label: 'Expand TAL', icon: 'users', color: 'purple', desc: 'Find lookalike accounts, dedup from original' },
+        { id: 'validate', label: 'Lead QA', icon: 'check-circle', color: 'green', desc: 'Validate lead titles against job functions' },
+        { id: 'sweetspot', label: 'Sweet Spot', icon: 'target', color: 'orange', desc: 'Generate full ICP profile from context' },
+        { id: 'custom', label: 'Custom', icon: 'sparkles', color: 'pink', desc: 'Write your own prompt with file context' },
+      ];
+
+      return (
+        <div className="max-w-5xl mx-auto pb-20 fade-in">
+          <div className="mb-5">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-8 h-8 bg-[var(--pw-primary)] rounded-lg flex items-center justify-center"><Icon name="sparkles" size={16} className="text-white" /></div>
+              <h2 className="text-2xl font-black text-gray-900">AI Analysis Engine</h2>
+            </div>
+            <p className="text-sm text-gray-500 ml-11">Powered by Claude · All analysis runs in the tool · Direct CSV download · No Gemini required</p>
+          </div>
+
+          {/* Mode Selector */}
+          <div className="grid grid-cols-5 gap-2 mb-5">
+            {MODES.map(m => (
+              <button key={m.id} onClick={() => setMode(m.id)}
+                className={`p-3 rounded-xl border text-left transition-all ${mode === m.id ? 'border-blue-400 bg-blue-50 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'}`}>
+                <Icon name={m.icon} size={16} className={`mb-1.5 ${mode === m.id ? 'text-blue-600' : 'text-gray-400'}`} />
+                <p className={`text-xs font-bold ${mode === m.id ? 'text-blue-800' : 'text-gray-700'}`}>{m.label}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{m.desc}</p>
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-5 gap-4">
+            {/* Left: Config */}
+            <div className="col-span-2 space-y-4">
+
+              {/* File Upload */}
+              {mode !== 'sweetspot' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">
+                    {mode === 'expand' ? 'File A — Original TAL (exclusion)' : 'TAL File'}
+                  </p>
+                  <FileDropZone onFileLoad={setFile} acceptedFile={file} onClear={() => { setFile(null); setCsvData(null); }} label="Upload TAL" />
+                </div>
+              )}
+
+              {mode === 'expand' && (
+                <div className="bg-white rounded-xl border border-purple-200 p-4 shadow-sm">
+                  <p className="text-xs font-bold text-purple-700 uppercase tracking-wider mb-3">File B — Expansion Source</p>
+                  <FileDropZone onFileLoad={setExpandFile} acceptedFile={expandFile} onClear={() => { setExpandFile(null); setCsvData(null); }} label="Upload expansion source" />
+                </div>
+              )}
+
+              {/* Campaign Context */}
+              <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">Campaign Context</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Client / Product</label>
+                    <input value={context.client} onChange={e => u('client', e.target.value)} placeholder="e.g. Adobe Experience Cloud" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Target Industries</label>
+                    <textarea value={context.industries} onChange={e => u('industries', e.target.value)} placeholder="Financial Services&#10;Healthcare&#10;SaaS" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-16" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Target Personas / Titles</label>
+                    <textarea value={context.personas} onChange={e => u('personas', e.target.value)} placeholder="VP of Marketing&#10;Director of IT&#10;CISO" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-16" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Company Size</label>
+                      <input value={context.companySize} onChange={e => u('companySize', e.target.value)} placeholder="200–5000 emp" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Regions</label>
+                      <input value={context.geos} onChange={e => u('geos', e.target.value)} placeholder="US, UK, ANZ" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Competitors to Exclude</label>
+                    <input value={context.competitors} onChange={e => u('competitors', e.target.value)} placeholder="Salesforce, HubSpot" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Target Account Count</label>
+                    <input type="number" value={context.targetCount} onChange={e => u('targetCount', e.target.value)} placeholder="300" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Campaign Objective</label>
+                    <input value={context.objective} onChange={e => u('objective', e.target.value)} placeholder="Generate 300 MQLs" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  {mode === 'narrow' || mode === 'validate' ? (
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Key Pain Points</label>
+                      <textarea value={context.painPoints} onChange={e => u('painPoints', e.target.value)} placeholder="Fragmented data&#10;Low ROI visibility" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-16" />
+                    </div>
+                  ) : null}
+                  {mode === 'custom' && (
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Your Prompt</label>
+                      <textarea value={context.customPrompt} onChange={e => u('customPrompt', e.target.value)} placeholder="Write your analysis request here. The campaign context and file data above will be appended automatically." className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-28" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Run Button */}
+              <div className="flex gap-2">
+                {!running ? (
+                  <button onClick={runAnalysis} className="flex-1 py-3 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all flex items-center justify-center gap-2 shadow-lg text-sm">
+                    <Icon name="sparkles" size={16} /> Run AI Analysis
+                  </button>
+                ) : (
+                  <button onClick={stopAnalysis} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all flex items-center justify-center gap-2 shadow-lg text-sm">
+                    <Icon name="square" size={16} /> Stop
+                  </button>
+                )}
+                {csvData && (
+                  <button onClick={downloadResult} className="py-3 px-4 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-all flex items-center justify-center gap-1.5 shadow-lg text-xs">
+                    <Icon name="download" size={14} /> CSV ({csvData.length})
+                  </button>
+                )}
+              </div>
+
+              {/* Data privacy note */}
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 border border-gray-200">
+                <p className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Icon name="lock" size={12} /> Your data stays private</p>
+                Files are processed locally. Only account data is sent to Claude's API for analysis — nothing is stored.
+              </div>
+            </div>
+
+            {/* Right: Output */}
+            <div className="col-span-3">
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full min-h-[600px] flex flex-col">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${running ? 'bg-blue-500 pulse-dot' : streamDone ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                    <span className="text-xs font-bold text-gray-600">
+                      {running ? 'Analysing...' : streamDone ? 'Analysis complete' : 'Ready'}
+                    </span>
+                  </div>
+                  {output && (
+                    <button onClick={() => { setOutput(''); setCsvData(null); setStreamDone(false); }}
+                      className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
+                      <Icon name="trash-2" size={12} /> Clear
+                    </button>
+                  )}
+                </div>
+                <div ref={outputRef} className="flex-1 overflow-y-auto p-4">
+                  {!output && !running && (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-300 py-16">
+                      <Icon name="sparkles" size={40} className="mb-4 text-gray-200" />
+                      <p className="text-sm font-semibold text-gray-400">AI Analysis results will appear here</p>
+                      <p className="text-xs text-gray-300 mt-1">Upload a file, fill in context, and click Run</p>
+                    </div>
+                  )}
+                  {running && !output && (
+                    <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl">
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
+                        <span className="pulse-dot inline-block w-2 h-2 bg-blue-500 rounded-full"></span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-blue-800">Claude is analysing your TAL...</p>
+                        <p className="text-xs text-blue-600">This typically takes 15–45 seconds depending on list size</p>
+                      </div>
+                    </div>
+                  )}
+                  {output && (
+                    <div className={`text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-mono text-xs ${running ? 'streaming-cursor' : ''}`}>
+                      {outputTextForDisplay}
+                    </div>
+                  )}
+                </div>
+                {csvData && streamDone && (
+                  <div className="border-t border-gray-100 p-4 bg-green-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Icon name="check-circle" size={16} className="text-green-600" />
+                        <span className="text-sm font-bold text-green-800">{csvData.length} accounts ready · Tier breakdown: {csvData.filter(r => r.Tier === 'Tier 1').length} High · {csvData.filter(r => r.Tier === 'Tier 2').length} Medium · {csvData.filter(r => r.Tier === 'Tier 3').length} Low</span>
+                      </div>
+                      <button onClick={downloadResult} className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 flex items-center gap-1.5 transition-all">
+                        <Icon name="download" size={13} /> Download CSV
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // SETTINGS VIEW — API Key Management
+    // ========================
+    const SettingsView = ({ apiKey, setApiKey }) => {
+      const [inputKey, setInputKey] = useState(apiKey || '');
+      const [show, setShow] = useState(false);
+      const [testing, setTesting] = useState(false);
+      const [testResult, setTestResult] = useState(null);
+
+      const save = () => {
+        const trimmed = inputKey.trim();
+        if (!trimmed.startsWith('sk-ant-')) { showToast('Invalid key — Claude API keys start with sk-ant-', 'error'); return; }
+        storeKey(trimmed); setApiKey(trimmed);
+        showToast('API key saved · stored in your browser only', 'success');
+        setTestResult(null);
+      };
+
+      const clear = () => { clearKey(); setApiKey(''); setInputKey(''); setTestResult(null); showToast('API key cleared', 'info'); };
+
+      const test = async () => {
+        const key = inputKey.trim();
+        if (!key) { showToast('Enter an API key first', 'error'); return; }
+        setTesting(true); setTestResult(null);
+        let result = ''; let error = null;
+        await callClaude(key, 'You are a helpful assistant.', 'Reply with exactly: "Promowise TAL Toolkit connected ✓"',
+          (chunk) => { result += chunk; }, () => {}, (err) => { error = err; }, new AbortController().signal);
+        setTesting(false);
+        if (error) { setTestResult({ ok: false, msg: error }); }
+        else { setTestResult({ ok: true, msg: result }); }
+      };
+
+      return (
+        <div className="max-w-2xl mx-auto pb-20 fade-in">
+          <div className="mb-6">
+            <h2 className="text-2xl font-black text-gray-900">Settings</h2>
+            <p className="text-sm text-gray-500 mt-1">Configure your Claude API key to power the AI Analysis Engine.</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm mb-4">
+            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2"><Icon name="key" size={16} className="text-[var(--pw-primary)]" /> Claude API Key</h3>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-sm text-blue-800">
+              <p className="font-bold mb-1">How to get your API key:</p>
+              <ol className="list-decimal ml-4 space-y-1 text-xs">
+                <li>Go to <strong>console.anthropic.com</strong></li>
+                <li>Sign in or create an account</li>
+                <li>Click <strong>API Keys</strong> → <strong>Create Key</strong></li>
+                <li>Copy the key (starts with <code>sk-ant-</code>) and paste it below</li>
+                <li>Your key is stored only in your browser's localStorage — it never leaves your device</li>
+              </ol>
+            </div>
+
+            <div className="space-y-3">
+              <div className="relative">
+                <input
+                  type={show ? 'text' : 'password'}
+                  value={inputKey}
+                  onChange={e => setInputKey(e.target.value)}
+                  placeholder="sk-ant-api03-..."
+                  className="w-full p-3 pr-12 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+                <button onClick={() => setShow(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                  <Icon name={show ? 'eye-off' : 'eye'} size={16} />
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={save} className="flex-1 py-2.5 bg-[var(--pw-primary)] text-white font-bold rounded-lg hover:bg-blue-900 text-sm flex items-center justify-center gap-1.5 transition-all">
+                  <Icon name="save" size={14} /> Save Key
+                </button>
+                <button onClick={test} disabled={testing} className="px-4 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 text-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50">
+                  {testing ? <><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span> Testing...</> : <><Icon name="wifi" size={14} /> Test</>}
+                </button>
+                {apiKey && <button onClick={clear} className="px-4 py-2.5 bg-red-50 text-red-600 font-bold rounded-lg hover:bg-red-100 text-sm flex items-center justify-center gap-1.5 transition-all border border-red-200"><Icon name="trash-2" size={14} /> Clear</button>}
+              </div>
+
+              {testResult && (
+                <div className={`p-3 rounded-lg text-sm font-medium flex items-start gap-2 ${testResult.ok ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                  <Icon name={testResult.ok ? 'check-circle' : 'alert-circle'} size={16} className={testResult.ok ? 'text-green-600' : 'text-red-600'} />
+                  {testResult.ok ? `✓ Connected: ${testResult.msg}` : `✗ ${testResult.msg}`}
+                </div>
+              )}
+
+              {apiKey && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                  <Icon name="shield-check" size={16} className="text-green-600" />
+                  <span className="text-xs text-green-700 font-semibold">API key active · ends in ...{apiKey.slice(-6)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Icon name="info" size={16} className="text-gray-500" /> Privacy & Data Handling</h3>
+            <ul className="space-y-2 text-sm text-gray-600">
+              <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Your API key is stored in browser localStorage only — not transmitted anywhere except to Anthropic's API</li>
+              <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> File data is processed locally in the browser — only the relevant account rows are sent to Claude for analysis</li>
+              <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> CSV exports download directly to your computer — no data is stored on any server</li>
+              <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Clearing your browser cache or clicking "Clear" above removes the key immediately</li>
+            </ul>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // RULE-BASED NARROWED TAL VIEW (offline fallback)
+    // ========================
+    const NarrowedTALView = () => {
+      const [file, setFile] = useState(null);
+      const [config, setConfig] = useState({ industries: [], minEmployees: 0, maxEmployees: 0, geos: [], jobFunctions: [], exclusions: [], targetCount: 0 });
+      const [results, setResults] = useState(null);
+      const [filterTier, setFilterTier] = useState('all');
+      const [colMap, setColMap] = useState({});
+      const [processing, setProcessing] = useState(false);
+
+      useEffect(() => {
+        if (file) { const map = {}; Object.keys(COLUMN_ALIASES).forEach(t => { const d = detectColumn(file.headers, t); if (d) map[t] = d; }); setColMap(map); }
+      }, [file]);
+
+      const runAnalysis = () => {
+        if (!file) { showToast('Upload a TAL file first', 'error'); return; }
+        setProcessing(true);
+        setTimeout(() => {
+          let scored = file.data.map(row => {
+            const cn = colMap.company ? String(row[colMap.company] || '').toLowerCase() : '';
+            if (config.exclusions.some(ex => ex && cn.includes(ex.toLowerCase()))) return null;
+            const { score, reasons } = scoreAccount(row, config, colMap);
+            return { ...row, _score: score, _tier: assignTier(score), _reasons: reasons.join(' | ') || 'Baseline fit' };
+          }).filter(Boolean);
+          scored.sort((a, b) => b._score - a._score);
+          if (config.targetCount > 0 && scored.length > config.targetCount) scored = scored.slice(0, config.targetCount);
+          setResults(scored); setFilterTier('all'); setProcessing(false);
+          const t1 = scored.filter(r => r._tier === 'Tier 1').length;
+          const t2 = scored.filter(r => r._tier === 'Tier 2').length;
+          showToast(`Done: ${scored.length} accounts — ${t1} Tier 1 · ${t2} Tier 2`);
+        }, 400);
+      };
+
+      const visibleCols = useMemo(() => { if (!file) return []; return ['company', 'industry', 'employees', 'country', 'revenue', 'title'].map(t => colMap[t]).filter(Boolean).slice(0, 5); }, [file, colMap]);
+      const filteredResults = useMemo(() => { if (!results) return []; return filterTier === 'all' ? results : results.filter(r => r._tier === filterTier); }, [results, filterTier]);
+
+      return (
+        <div className="max-w-5xl mx-auto pb-20 fade-in">
+          <div className="mb-5">
+            <h2 className="text-2xl font-black text-gray-900">Narrow TAL <span className="text-sm font-normal text-gray-400 ml-2">(Rule-Based · No API needed)</span></h2>
+            <p className="text-sm text-gray-500 mt-1">Instant scoring using ICP parameters. For deeper AI analysis use the AI Analysis Engine.</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-black">1</span>Upload TAL File</h3>
+            <FileDropZone onFileLoad={setFile} acceptedFile={file} onClear={() => { setFile(null); setResults(null); setColMap({}); }} />
+            {file && Object.keys(colMap).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 items-center"><span className="text-xs text-gray-400 font-semibold">Auto-detected:</span>
+                {Object.entries(colMap).map(([type, col]) => <span key={type} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">{type}: <em>{col}</em></span>)}
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4 shadow-sm">
+            <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-black">2</span>ICP Parameters</h3>
+            <ICPConfig config={config} setConfig={setConfig} />
+          </div>
+          <button onClick={runAnalysis} disabled={!file || processing} className="w-full py-4 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-6 text-sm">
+            {processing ? <><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span> Scoring...</> : <><Icon name="zap" size={18} /> Run TAL Analysis</>}
+          </button>
+          {results && (
+            <div className="fade-in">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2"><span className="w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-black">3</span>Results</h3>
+                <div className="flex flex-wrap gap-2">
+                  {['all', 'Tier 1', 'Tier 2', 'Tier 3'].map(tier => {
+                    const count = tier === 'all' ? results.length : results.filter(r => r._tier === tier).length;
+                    const active = filterTier === tier;
+                    return <button key={tier} onClick={() => setFilterTier(tier)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${active ? tier === 'all' ? 'bg-gray-900 text-white' : tier === 'Tier 1' ? 'bg-green-700 text-white' : tier === 'Tier 2' ? 'bg-yellow-600 text-white' : 'bg-red-700 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{tier === 'all' ? `All (${results.length})` : `${tier} (${count})`}</button>;
+                  })}
+                </div>
+              </div>
+              <ResultsSummary results={results} />
+              <ResultsTable results={filteredResults} visibleCols={visibleCols} />
+              <ExportBar results={results} filenamePrefix="Narrowed_TAL" />
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ========================
+    // PROMPT LIBRARY
+    // ========================
+    const PROMPT_LIBRARY = [
+      { id: 'lead-validation', category: 'TAL Creation', tag: 'TAL', title: 'Lead Validation (QA)', desc: 'Validate lead titles against job functions.',
+        prompt: `Pretend you are a lead generation campaign manager reviewing lead quality. The client is [INSERT CLIENT NAME] focusing on their [INSERT TECHNOLOGY/SECTOR] campaign. They are looking for these job functions at [INSERT JOB LEVEL]:\n\n[LIST JOB FUNCTIONS HERE]\n\nIn the 'Yes/No?' column, write 'Yes' if the job title aligns with one of the above job functions. Write 'No' if it does not. If Yes, write the matching Job Function in 'Job Function Alignment'. Write No for border cases.\n\nReturn updated spreadsheet keeping all rows/columns identical except filling in 'Yes/No?' and 'Job Function Alignment'. Output as CSV attachment.` },
+      { id: 'abm-builder', category: 'TAL Creation', tag: 'TAL', title: 'ABM Job Function List Builder', desc: 'Build a deduplicated job function list for ABM targeting.',
+        prompt: `Act as a B2B ABM strategist. Build a deduplicated job FUNCTION list for:\n\nPRODUCT/CLIENT: [INSERT]\nINDUSTRY(IES): [INSERT]\nSEED TITLES: [INSERT]\nJOB LEVELS: [INSERT]\nREGION: [INSERT]\nCOMPANY SIZE: [INSERT]\n\nOUTPUT:\n1. "Core Functions" (tight fit)\n2. "Adjacent Functions" (use cautiously)\n3. "Exclude / Out-of-scope"\n\nOne per line, no duplicates. Core ≤ 12, Adjacent ≤ 10.` },
+      { id: 'competitor-scoring', category: 'TAL Creation', tag: 'TAL', title: 'Competitor Usage Scoring', desc: 'Add competitor usage likelihood score to a TAL.',
+        prompt: `I have my TAL exported from Apollo. The client wants to identify which companies are most likely using [INSERT TECHNOLOGY/COMPETITOR].\n\nAnalyse the dataset and add:\n1. Competitor_Usage_Score — High / Medium / Low only\n2. Reasoning_Note — brief explanation\n\nOutput as CSV attachment directly.` },
+      { id: 'tal-narrowing-prompt', category: 'TAL Creation', tag: 'TAL', title: 'TAL Narrowing AI Prompt', desc: 'Prompt for narrowing a TAL in any AI with correct output rules.',
+        prompt: `You are a B2B campaign targeting specialist. I am uploading a TAL as CSV. Score and tier each account.\n\nSCORING:\n- Industry match\n- Company size fit (range: [MIN]–[MAX] employees)\n- Geography (target: [REGIONS])\n- Revenue tier\n\nTIERS:\n- Tier 1 (High Priority): 3+ criteria strong match\n- Tier 2 (Medium Priority): 2 criteria or partial\n- Tier 3 (Low Priority): 1 or fewer\n\nOUTPUT RULES:\n1. Show "Tier" and "Priority Level" columns only — NO numeric scores\n2. Do NOT include original TAL companies in any expansion output\n3. Output as CSV file attachment — not a link, not a code block\n4. Tier counts in summary must match download\n\nProvide summary first: total, tier breakdown, data quality flags.` },
+      { id: 'campaign-opt', category: 'Campaign Ops', tag: 'Ops', title: 'Campaign Optimisation Plan', desc: 'Generate a 14–30 day optimisation plan.',
+        prompt: `PERSONA: You are a strategic campaign optimisation copilot.\n\nTASK: Create a focused 14–30 day optimisation plan.\n\nCONTEXT:\nClient: [INSERT]\nCampaign Type: [INSERT]\nCurrent CPL: [INSERT] vs Target: [INSERT]\nCurrent Volume: [INSERT] vs Target: [INSERT]\nData: [PASTE PERFORMANCE DATA]\n\nFORMAT:\n1. Snapshot Diagnosis (3 bullet points)\n2. Numeric Targets Table (Week 1–4)\n3. Priority Actions by Lever (TAL, Creative, Partner, Budget)\n4. Risk flags` },
+      { id: 'data-quality', category: 'Campaign Ops', tag: 'Ops', title: 'Data Quality Report', desc: 'Analyse lead data and identify systematic errors.',
+        prompt: `Act as Campaign Analyst. Generate a Data Quality Report for the past 2 weeks.\n\nCONTEXT:\nClient: [INSERT]\nRejection Rate: [%]\nMain Issues: [e.g. Parameter Mismatch, Invalid Emails]\nDATA: [PASTE DATA]\n\nFORMAT:\n1. Executive Summary (3 sentences)\n2. Key Findings — quantify each error type\n3. Quantified Impact Table\n4. Root Cause Analysis\n5. Recommendations (ranked by impact)` },
+      { id: 'lead-shortage', category: 'Campaign Ops', tag: 'Ops', title: 'Lead Shortage Escalation', desc: 'Checklist and escalation draft for volume shortfalls.',
+        prompt: `Act as Senior Campaign Operations Manager. I am facing a lead shortage on [CLIENT].\n\nSituation: Target: [N] | Delivered: [N] | Shortfall: [N]\nPartner Feedback: [INSERT]\nDays remaining: [N]\n\nTASK:\n1. 3–5 questions to ask the partner NOW to unlock volume\n2. Draft "Lead Shortage Escalation" message for manager\n3. 2 contingency options if partner cannot deliver` },
+      { id: 'partner-brief', category: 'Campaign Ops', tag: 'Ops', title: 'Partner Campaign Brief', desc: 'Generate a structured brief to send to media partners.',
+        prompt: `Generate a professional partner campaign brief.\n\nCLIENT: [INSERT]\nCAMPAIGN: [INSERT]\nTYPE: [Content Syndication / ABM / Programmatic]\nDATES: [START – END]\nBUDGET/CPL: [INSERT]\nVOLUME: [INSERT]\n\nTARGET AUDIENCE:\n- Industries: [INSERT]\n- Functions: [INSERT]\n- Seniority: [INSERT]\n- Company Size: [INSERT]\n- Geo: [INSERT]\n\nASSET: [INSERT]\nREJECTION CRITERIA: [INSERT]\nREPORTING: [Weekly/Bi-weekly]\n\nFormat as clean email-ready document.` },
+      { id: 'weekly-report', category: 'Client Comms', tag: 'Client', title: 'Weekly Campaign Report', desc: 'Professional weekly status update for a client.',
+        prompt: `Act as Client Success Manager. Write a professional weekly campaign status report.\n\nCLIENT: [INSERT] | WEEK: [DATE RANGE] | CAMPAIGN: [INSERT]\n\nDATA:\n- Leads this week: [N] | Cumulative: [N] | Target: [N]\n- Pacing: [%] | CPL: [INSERT] vs Target: [INSERT]\n- Rejection Rate: [%]\n- Key Events: [INSERT]\n\nFORMAT:\n1. Performance Snapshot (RAG status: Green/Amber/Red)\n2. Key Highlights (2–3)\n3. Issues & Actions\n4. Next Week's Focus\n5. Sign-off\n\nTone: professional, concise. Under 300 words.` },
+      { id: 'pause-comms', category: 'Client Comms', tag: 'Client', title: 'Campaign Pause Communication', desc: 'Draft client email to communicate a pause.',
+        prompt: `Write a professional client email for a campaign pause.\n\nCLIENT: [INSERT] | CAMPAIGN: [INSERT]\nREASON: [INSERT]\nDELIVERED: [N of N target]\nPAUSE DATE: [INSERT] | RESUME: [INSERT or TBC]\nRESOLUTION PLAN: [INSERT]\n\nRequirements: transparent, confident, solution-first tone. Lead with the plan. Under 200 words.` },
+      { id: 'qbr-deck', category: 'Client Comms', tag: 'Client', title: 'QBR / Business Review Outline', desc: 'Slide-by-slide QBR outline.',
+        prompt: `You are a Senior Account Director. Create a QBR presentation outline.\n\nCLIENT: [INSERT] | PERIOD: [Q# YEAR]\nCAMPAIGNS: [LIST]\nTOTAL SPEND: [INSERT]\nOUTCOMES DELIVERED: [INSERT]\nKEY WINS: [INSERT] | CHALLENGES: [INSERT]\n\nOUTPUT: Slide-by-slide outline with title, key data point, and 2–3 narrative bullets per slide.\nSections: Executive Summary · Campaign Deep-Dive · Data Quality · TAL Insights · H2 Recommendations · Next Steps` },
+      { id: 'mid-campaign-review', category: 'Reporting', tag: 'Report', title: 'Mid-Campaign Review', desc: 'Structured mid-campaign health check.',
+        prompt: `Act as Campaign Strategist. Write a mid-campaign review.\n\nCLIENT: [INSERT] | TYPE: [INSERT] | HALFWAY DATE: [INSERT]\nTarget: [N] | Delivered: [N] | Pacing: [%]\nCPL: [INSERT] vs Target: [INSERT]\nTop segments: [INSERT] | Underperforming: [INSERT]\n\nSections:\n1. Health Score (Red/Amber/Green) + rationale\n2. What's Working\n3. What Needs Fixing\n4. Optimisation Actions (Owner: CM / Partner / Creative)\n5. Revised Forecast` },
+    ];
+
+    const PROMPT_CATEGORIES = ['All', 'TAL Creation', 'Campaign Ops', 'Client Comms', 'Reporting'];
+    const TAG_COLORS = { TAL: 'bg-blue-100 text-blue-700', Ops: 'bg-orange-100 text-orange-700', Client: 'bg-purple-100 text-purple-700', Report: 'bg-teal-100 text-teal-700' };
+
+    const PromptLibrary = () => {
+      const [search, setSearch] = useState('');
+      const [cat, setCat] = useState('All');
+      const [copiedId, setCopiedId] = useState(null);
+      const [expandedId, setExpandedId] = useState(null);
+      const filtered = useMemo(() => PROMPT_LIBRARY.filter(p => (cat === 'All' || p.category === cat) && (!search || [p.title, p.desc, p.tag, p.category].some(f => f.toLowerCase().includes(search.toLowerCase())))), [search, cat]);
+      const handleCopy = (prompt, id) => {
+        navigator.clipboard.writeText(prompt).catch(() => { const ta = document.createElement('textarea'); ta.value = prompt; ta.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); });
+        setCopiedId(id); showToast('Prompt copied!'); setTimeout(() => setCopiedId(null), 2500);
+      };
+      return (
+        <div className="max-w-4xl mx-auto pb-20 fade-in">
+          <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div><h2 className="text-2xl font-black text-gray-900">Prompt Library</h2><p className="text-sm text-gray-500 mt-1">{PROMPT_LIBRARY.length} prompts · copy into any AI assistant</p></div>
+            <div className="relative"><input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-52" /><Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /></div>
+          </div>
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {PROMPT_CATEGORIES.map(c => <button key={c} onClick={() => setCat(c)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${cat === c ? 'bg-[var(--pw-primary)] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{c}{c !== 'All' && ` (${PROMPT_LIBRARY.filter(p => p.category === c).length})`}</button>)}
+          </div>
+          <div className="space-y-2">
+            {filtered.map(p => (
+              <div key={p.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between p-4 cursor-pointer" onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`${TAG_COLORS[p.tag] || 'bg-gray-100 text-gray-600'} text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0`}>{p.tag}</span>
+                    <div className="min-w-0"><h3 className="text-sm font-bold text-gray-900">{p.title}</h3><p className="text-xs text-gray-500 truncate">{p.desc}</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3 shrink-0">
+                    <button onClick={e => { e.stopPropagation(); handleCopy(p.prompt, p.id); }} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${copiedId === p.id ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}><Icon name={copiedId === p.id ? 'check' : 'copy'} size={13} />{copiedId === p.id ? 'Copied' : 'Copy'}</button>
+                    <Icon name={expandedId === p.id ? 'chevron-up' : 'chevron-down'} size={16} className="text-gray-400" />
+                  </div>
+                </div>
+                {expandedId === p.id && <div className="border-t border-gray-100 px-4 pb-4 pt-3 fade-in"><pre className="bg-gray-50 border border-gray-100 rounded-lg p-4 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed overflow-auto max-h-56">{p.prompt}</pre></div>}
+              </div>
+            ))}
+            {filtered.length === 0 && <div className="text-center py-12 text-gray-400"><Icon name="search" size={32} className="mx-auto mb-3 text-gray-200" /><p className="text-sm font-medium">No prompts match</p></div>}
+          </div>
+        </div>
+      );
+    };
+
+    // ========================
+    // GOVERNANCE
+    // ========================
+    const GovernanceView = () => (
+      <div className="max-w-2xl mx-auto py-12 fade-in">
+        <div className="text-center mb-10">
+          <div className="w-16 h-16 bg-white rounded-2xl shadow-lg flex items-center justify-center mx-auto mb-4 border border-gray-100"><Icon name="shield-check" size={32} className="text-[var(--pw-pink)]" /></div>
+          <h3 className="text-2xl font-black text-gray-900 mb-2">Governance & Feedback</h3>
+          <p className="text-gray-500 text-sm max-w-sm mx-auto">Help us improve the tool.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-5">
+          <a href="https://docs.google.com/forms/d/1hBm4pdNKn97g0f_e_rSAYBklHU5tqpv1b8LmtlDVFe8/edit" target="_blank" rel="noopener noreferrer" className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all border border-gray-200 text-center block group">
+            <div className="mx-auto w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-[var(--pw-primary)] mb-3 group-hover:bg-[var(--pw-primary)] group-hover:text-white transition-colors"><Icon name="message-square" size={22} /></div>
+            <h4 className="font-bold text-gray-900 mb-1 text-sm">Feature Feedback</h4><p className="text-xs text-gray-500">Suggest improvements</p>
+          </a>
+          <a href="https://forms.clickup.com/1230273/f/15he1-166877/5LYHZQJZWRN5U8C86G" target="_blank" rel="noopener noreferrer" className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all border border-gray-200 text-center block group">
+            <div className="mx-auto w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center text-orange-600 mb-3 group-hover:bg-orange-600 group-hover:text-white transition-colors"><Icon name="alert-triangle" size={22} /></div>
+            <h4 className="font-bold text-gray-900 mb-1 text-sm">Report a Bug</h4><p className="text-xs text-gray-500">Log issues via ClickUp</p>
+          </a>
+        </div>
+        <div className="mt-8 bg-gray-50 rounded-xl border border-gray-200 p-5">
+          <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Icon name="check-circle" size={16} className="text-green-600" /> v5.0 Changes</h4>
+          <ul className="space-y-2 text-sm text-gray-600">
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Built-in Claude AI Analysis Engine — no Gemini required</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Streaming AI output with real-time results</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> 5 analysis modes: Narrow, Expand, Lead QA, Sweet Spot, Custom</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> CSV always direct download — never a link or Google Sheets</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Strict dedup — original TAL accounts never in lookalike output</li>
+            <li className="flex gap-2"><Icon name="check" size={14} className="text-green-600 mt-0.5 shrink-0" /> Rule-based fallback scorer works without API key</li>
+          </ul>
+        </div>
+      </div>
+    );
+
+    // ========================
+    // SIDEBAR ITEM
+    // ========================
+    const SidebarItem = ({ label, icon, isActive, onClick, badge, highlight }) => (
+      <div onClick={onClick} className={`group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg cursor-pointer transition-all duration-150 ${isActive ? 'bg-blue-50 text-[var(--pw-primary)] font-bold border-l-4 border-[var(--pw-primary)]' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 border-l-4 border-transparent'}`}>
+        <Icon name={icon} className={isActive ? 'text-[var(--pw-primary)]' : 'text-gray-400 group-hover:text-gray-600'} size={17} />
+        <span className="text-sm flex-1">{label}</span>
+        {badge && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${highlight ? 'bg-[var(--pw-primary)] text-white' : 'bg-blue-100 text-blue-700'}`}>{badge}</span>}
+      </div>
+    );
+
+    // ========================
+    // MAIN APP
+    // ========================
+    const App = () => {
+      const [active, setActive] = useState('ai-analysis');
+      const [apiKey, setApiKey] = useState(getStoredKey());
+
+      const SECTIONS = {
+        'ai-analysis': { label: 'AI Analysis Engine', icon: 'sparkles', badge: 'NEW', highlight: true, group: 'core' },
+        'narrow-tal':  { label: 'Rule-Based Narrow', icon: 'filter', badge: null, group: 'core' },
+        'prompt-lib':  { label: 'Prompt Library', icon: 'book-open', badge: '12', group: 'resources' },
+        'settings':    { label: 'Settings / API Key', icon: 'settings', badge: apiKey ? '✓' : null, group: 'resources' },
+        'governance':  { label: 'Governance', icon: 'shield-check', badge: null, group: 'resources' },
+      };
+
+      return (
+        <div className="flex h-screen w-full overflow-hidden">
+          <aside className="w-60 bg-white border-r border-gray-200 flex flex-col shadow-sm z-20 shrink-0">
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2 mb-0.5">
+                <div className="w-7 h-7 bg-[var(--pw-primary)] rounded-lg flex items-center justify-center"><Icon name="zap" size={14} className="text-white" /></div>
+                <h1 className="text-base font-extrabold text-[var(--pw-primary)] tracking-tight">Promowise TAL</h1>
+              </div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold ml-9">Campaign Ops Toolkit</p>
+            </div>
+
+            <nav className="flex-1 overflow-y-auto py-3 space-y-0.5">
+              <p style={{padding: '14px 20px 4px', fontSize: '10px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em'}}>AI Tools</p>
+              {Object.entries(SECTIONS).filter(([,s]) => s.group === 'core').map(([key, s]) => (
+                <SidebarItem key={key} label={s.label} icon={s.icon} isActive={active === key} onClick={() => setActive(key)} badge={s.badge} highlight={s.highlight} />
+              ))}
+              <p style={{padding: '14px 20px 4px', fontSize: '10px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em'}}>Resources</p>
+              {Object.entries(SECTIONS).filter(([,s]) => s.group === 'resources').map(([key, s]) => (
+                <SidebarItem key={key} label={s.label} icon={s.icon} isActive={active === key} onClick={() => setActive(key)} badge={s.badge} />
+              ))}
+            </nav>
+
+            <div className="p-4 border-t border-gray-200 space-y-2">
+              {!apiKey ? (
+                <button onClick={() => setActive('settings')} className="w-full py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 transition flex items-center justify-center gap-1.5">
+                  <Icon name="key" size={13} /> Add API Key to enable AI
+                </button>
+              ) : (
+                <div className="bg-green-50 rounded-lg p-2.5 text-[10px] text-green-700 font-bold flex items-center gap-1.5">
+                  <Icon name="check-circle" size={12} className="text-green-600" /> Claude API connected
+                </div>
+              )}
+              <div className="text-[10px] text-gray-400 text-center font-medium">v5.0 · Promowise Campaign Ops</div>
+            </div>
+          </aside>
+
+          <main className="flex-1 flex flex-col overflow-hidden bg-[var(--bg-slate)]">
+            <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-3 shrink-0 shadow-sm">
+              <div className="p-1.5 rounded-lg bg-[var(--pw-primary-light)] text-[var(--pw-primary)]"><Icon name={SECTIONS[active]?.icon || 'zap'} size={16} /></div>
+              <h2 className="text-sm font-bold text-gray-800">{SECTIONS[active]?.label}</h2>
+              {active === 'ai-analysis' && !apiKey && (
+                <span className="ml-auto text-xs bg-amber-100 text-amber-700 font-bold px-3 py-1 rounded-full flex items-center gap-1"><Icon name="key" size={12} /> API key required · <button onClick={() => setActive('settings')} className="underline">Add in Settings</button></span>
+              )}
+            </header>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+              {active === 'ai-analysis' && <AIAnalysisView apiKey={apiKey} />}
+              {active === 'narrow-tal'  && <NarrowedTALView />}
+              {active === 'prompt-lib'  && <PromptLibrary />}
+              {active === 'settings'    && <SettingsView apiKey={apiKey} setApiKey={setApiKey} />}
+              {active === 'governance'  && <GovernanceView />}
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
