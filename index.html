@@ -5,297 +5,325 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Promowise TAL Toolkit | Campaign Ops</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
-    :root { --pw-primary:#1E1E54; --pw-primary-light:#eff6ff; --pw-pink:#db2777; --pw-green:#059669; --bg-slate:#f3f4f6; }
-    body { font-family:'Inter',sans-serif; background:var(--bg-slate); color:#1f2937; margin:0; overflow:hidden; }
-    ::-webkit-scrollbar{width:6px;height:6px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px}
-    .fade-in{animation:fadeIn .35s ease-out forwards} @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-    .tier-1{background:#dcfce7;color:#166534;border-color:#86efac}
-    .tier-2{background:#fef9c3;color:#854d0e;border-color:#fde047}
-    .tier-3{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
-    .drop-zone{border:2px dashed #cbd5e1;transition:all .2s}
-    .drop-zone.drag-over{border-color:#3b82f6;background:#eff6ff}
-    .pulse-dot{animation:pd 1.5s infinite} @keyframes pd{0%,100%{opacity:1}50%{opacity:.3}}
-    .sidebar-lbl{padding:14px 20px 4px;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em}
-    .progress-bar{transition:width .3s ease}
-    .xl-badge{background:#217346;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.03em}
+    :root{--pw:#1E1E54;--pwl:#eff6ff;--pink:#db2777;--grn:#059669;--bg:#f3f4f6}
+    *{box-sizing:border-box}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:#1f2937;margin:0;height:100vh;overflow:hidden}
+    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px}
+    .fi{animation:fi .3s ease forwards}@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+    .t1{background:#dcfce7;color:#166534;border-color:#86efac}
+    .t2{background:#fef9c3;color:#854d0e;border-color:#fde047}
+    .t3{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+    .dz{border:2px dashed #cbd5e1;transition:all .2s}
+    .dz.ov{border-color:#3b82f6;background:#eff6ff}
+    .pd{animation:pd 1.4s infinite}@keyframes pd{0%,100%{opacity:1}50%{opacity:.25}}
+    .slbl{padding:12px 18px 3px;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em}
+    .pb{transition:width .3s}
+    .xlb{background:#217346;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px}
+    input,textarea,select{outline:none}
+    input:focus,textarea:focus,select:focus{box-shadow:0 0 0 2px #93c5fd}
   </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useMemo, useCallback } = React;
+const {useState,useEffect,useRef,useMemo,useCallback}=React;
 
-/* ─── ICON ─── */
-const Icon = ({ name, size=18, className="" }) => {
-  const ref = useRef(null);
-  useEffect(() => { if(ref.current) lucide.createIcons({nodes:[ref.current]}); }, [name]);
-  return <i ref={ref} data-lucide={name} className={className} style={{width:size,height:size,display:'inline-block',flexShrink:0}} />;
+/* ── SVG ICONS (inline — no CDN dependency) ── */
+const ICONS={
+  zap:`<polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`,
+  filter:`<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>`,
+  users:`<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
+  'check-circle':`<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>`,
+  target:`<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>`,
+  'book-open':`<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>`,
+  'shield-check':`<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>`,
+  lock:`<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`,
+  upload:`<polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>`,
+  'file-check':`<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 15 11 17 15 13"/>`,
+  x:`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
+  download:`<polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.11"/>`,
+  'file-spreadsheet':`<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="10" y2="9"/>`,
+  search:`<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
+  copy:`<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`,
+  check:`<polyline points="20 6 9 17 4 12"/>`,
+  'chevron-down':`<polyline points="6 9 12 15 18 9"/>`,
+  'chevron-up':`<polyline points="18 15 12 9 6 15"/>`,
+  'message-square':`<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`,
+  'alert-triangle':`<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`,
+  'shield-alert':`<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
+  'message-circle':`<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>`,
+  'trending-up':`<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>`,
+  info:`<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>`,
+  sparkles:`<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/>`,
+};
+const Ic=({n,size=18,cls=''})=>{
+  const p=ICONS[n]||'';
+  return <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cls} style={{flexShrink:0,display:'inline-block'}} dangerouslySetInnerHTML={{__html:p}}/>;
 };
 
-/* ─── TOAST ─── */
-const toast = (msg, type='success') => {
+/* ── TOAST ── */
+const toast=(msg,type='success')=>{
   const c={success:'#059669',error:'#DC2626',info:'#2563EB',warn:'#D97706'};
   const el=document.createElement('div');
   el.textContent=msg;
   Object.assign(el.style,{position:'fixed',bottom:'28px',left:'50%',transform:'translateX(-50%)',
-    background:c[type]||c.info,color:'#fff',padding:'11px 26px',borderRadius:'12px',
-    boxShadow:'0 8px 32px rgba(0,0,0,.18)',zIndex:'9999',fontSize:'13px',fontWeight:'700',whiteSpace:'nowrap'});
+    background:c[type]||c.info,color:'#fff',padding:'10px 24px',borderRadius:'12px',
+    boxShadow:'0 8px 32px rgba(0,0,0,.18)',zIndex:'9999',fontSize:'13px',fontWeight:'700',whiteSpace:'nowrap',
+    animation:'none',pointerEvents:'none'});
   document.body.appendChild(el);
-  setTimeout(()=>{ if(document.body.contains(el)) document.body.removeChild(el); },3200);
+  setTimeout(()=>{try{document.body.removeChild(el)}catch{}},3200);
 };
 
-/* ─── EXCEL EXPORT (xlsx) ─── */
-const exportToExcel = (data, filename, sheetName='Results') => {
-  if(!data||!data.length){ toast('No data to export','error'); return; }
-  try {
-    const ws = XLSX.utils.json_to_sheet(data);
-    // Auto-width columns
-    const cols = Object.keys(data[0]);
-    ws['!cols'] = cols.map(k => ({ wch: Math.min(50, Math.max(12, k.length, ...data.slice(0,50).map(r => String(r[k]||'').length))) }));
-    // Style header row green (xlsx-compatible)
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    for(let C=range.s.c; C<=range.e.c; C++){
-      const addr = XLSX.utils.encode_cell({r:0,c:C});
-      if(!ws[addr]) continue;
-      ws[addr].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E1E54'}}, alignment:{horizontal:'center'} };
+/* ── EXCEL EXPORT ── */
+const exportXL=(data,filename,sheet='Results')=>{
+  if(!data||!data.length){toast('No data to export','error');return;}
+  try{
+    const ws=XLSX.utils.json_to_sheet(data);
+    const cols=Object.keys(data[0]);
+    ws['!cols']=cols.map(k=>({wch:Math.min(50,Math.max(12,k.length,...data.slice(0,50).map(r=>String(r[k]||'').length)))}));
+    const rng=XLSX.utils.decode_range(ws['!ref']);
+    for(let C=rng.s.c;C<=rng.e.c;C++){
+      const a=XLSX.utils.encode_cell({r:0,c:C});
+      if(ws[a])ws[a].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E1E54'}},alignment:{horizontal:'center'}};
     }
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : filename+'.xlsx');
-    toast(`✓ Downloading ${filename}`);
-  } catch(e) {
-    toast('Export failed: '+e.message,'error');
-  }
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,sheet);
+    XLSX.writeFile(wb,filename.endsWith('.xlsx')?filename:filename+'.xlsx');
+    toast('✓ Downloading '+filename);
+  }catch(e){toast('Export failed: '+e.message,'error');}
 };
 
-/* ─── COLUMN DETECTION ─── */
-const COL_ALIASES = {
-  company:  ['company','company name','account','account name','organization','org','company_name','account_name','name'],
-  industry: ['industry','sector','vertical','industry_type','sub_industry','primary_industry','industry name'],
+/* ── COLUMN DETECTION ── */
+const COL_AL={
+  company:['company','company name','account','account name','organization','org','company_name','account_name','name'],
+  industry:['industry','sector','vertical','industry_type','sub_industry','primary_industry','industry name'],
   employees:['employees','employee count','company size','headcount','number of employees','employee_count','num_employees','size','# employees','employees range'],
-  revenue:  ['revenue','annual revenue','estimated revenue','annual_revenue','revenue_range','company_revenue','revenue range'],
-  country:  ['country','region','geo','geography','location','hq country','headquarters','hq_country','country/region'],
-  website:  ['website','domain','url','company url','website_url','company_url','web site','homepage'],
-  title:    ['title','job title','job_title','contact title','role','position'],
-  city:     ['city','hq city','hq_city','headquarters city'],
-  state:    ['state','hq state','hq_state','province'],
-  email:    ['email','email address','work email','business email'],
-  phone:    ['phone','phone number','mobile','direct phone'],
+  revenue:['revenue','annual revenue','estimated revenue','annual_revenue','revenue_range','company_revenue','revenue range'],
+  country:['country','region','geo','geography','location','hq country','headquarters','hq_country','country/region'],
+  website:['website','domain','url','company url','website_url','company_url','web site','homepage'],
+  title:['title','job title','job_title','contact title','role','position'],
+  city:['city','hq city','hq_city','headquarters city'],
+  state:['state','hq state','hq_state','province'],
+  email:['email','email address','work email','business email'],
+  phone:['phone','phone number','mobile','direct phone'],
 };
-const detectCol = (headers, type) => {
-  const al = COL_ALIASES[type]||[];
-  const lo = headers.map(h=>String(h).toLowerCase().trim());
-  for(const a of al){ const i=lo.indexOf(a); if(i>=0) return headers[i]; }
-  for(const a of al){ const i=lo.findIndex(h=>h.includes(a)); if(i>=0) return headers[i]; }
+const detCol=(hdrs,type)=>{
+  const al=COL_AL[type]||[];
+  const lo=hdrs.map(h=>String(h).toLowerCase().trim());
+  for(const a of al){const i=lo.indexOf(a);if(i>=0)return hdrs[i];}
+  for(const a of al){const i=lo.findIndex(h=>h.includes(a));if(i>=0)return hdrs[i];}
   return null;
 };
+const buildCM=(hdrs)=>{const m={};Object.keys(COL_AL).forEach(t=>{const d=detCol(hdrs,t);if(d)m[t]=d;});return m;};
 
-/* ─── PARSERS ─── */
-const parseEmp = v => {
-  if(v==null) return 0;
+/* ── PARSERS ── */
+const parseEmp=v=>{
+  if(v==null)return 0;
   const s=String(v).replace(/,/g,'').trim();
-  if(s.includes('-')){ const p=s.split('-').map(x=>parseInt(x.replace(/\D/g,''))||0); return Math.round((p[0]+p[1])/2); }
-  if(s.includes('+')) return parseInt(s)||0;
-  const k=s.match(/^(\d+\.?\d*)k$/i); if(k) return Math.round(parseFloat(k[1])*1000);
+  if(s.includes('-')){const p=s.split('-').map(x=>parseInt(x.replace(/\D/g,''))||0);return Math.round((p[0]+p[1])/2);}
+  if(s.includes('+'))return parseInt(s)||0;
+  const k=s.match(/^(\d+\.?\d*)k$/i);if(k)return Math.round(parseFloat(k[1])*1000);
   return parseInt(s)||0;
 };
-const parseRev = v => {
-  if(v==null) return 0;
+const parseRev=v=>{
+  if(v==null)return 0;
   const s=String(v).toLowerCase().replace(/[$,\s]/g,'').trim();
-  const b=s.match(/^(\d+\.?\d*)b/); if(b) return parseFloat(b[1])*1e9;
-  const m=s.match(/^(\d+\.?\d*)m/); if(m) return parseFloat(m[1])*1e6;
-  const k=s.match(/^(\d+\.?\d*)k/); if(k) return parseFloat(k[1])*1e3;
+  const b=s.match(/^(\d+\.?\d*)b/);if(b)return parseFloat(b[1])*1e9;
+  const m=s.match(/^(\d+\.?\d*)m/);if(m)return parseFloat(m[1])*1e6;
+  const k=s.match(/^(\d+\.?\d*)k/);if(k)return parseFloat(k[1])*1e3;
   return parseFloat(s)||0;
 };
 
-/* ─── SCORING ENGINE ─── */
-const scoreAccount = (row, cfg, cm) => {
-  let score=0, max=0;
+/* ── SCORING ENGINE ── */
+const scoreRow=(row,cfg,cm)=>{
+  let score=0,max=0;
   const reasons=[];
-
-  // Industry — weight 30
-  if(cfg.industries.length>0 && cm.industry){
+  if(cfg.industries.length>0&&cm.industry){
     max+=30;
     const ri=String(row[cm.industry]||'').toLowerCase();
     const ex=cfg.industries.find(i=>ri.includes(i.toLowerCase()));
-    if(ex){ score+=30; reasons.push(`Industry: ${ex}`); }
-    else {
-      const pt=cfg.industries.find(i=>i.toLowerCase().split(/\s+/).some(w=>w.length>3&&ri.includes(w)));
-      if(pt){ score+=15; reasons.push(`Partial industry: ${pt}`); }
-    }
+    if(ex){score+=30;reasons.push('Industry: '+ex);}
+    else{const pt=cfg.industries.find(i=>i.toLowerCase().split(/\s+/).some(w=>w.length>3&&ri.includes(w)));if(pt){score+=15;reasons.push('Partial industry: '+pt);}}
   }
-
-  // Employee size — weight 25
-  if((cfg.minEmp>0||cfg.maxEmp>0) && cm.employees){
+  if((cfg.minEmp>0||cfg.maxEmp>0)&&cm.employees){
     max+=25;
     const emp=parseEmp(row[cm.employees]);
     if(emp>0){
-      const mn=cfg.minEmp||0, mx=cfg.maxEmp||Infinity;
-      if(emp>=mn && emp<=mx){ score+=25; reasons.push('Size: in range'); }
-      else if(emp>=mn*.6 && emp<=mx*1.4){ score+=12; reasons.push('Size: near range'); }
+      const mn=cfg.minEmp||0,mx=cfg.maxEmp||Infinity;
+      if(emp>=mn&&emp<=mx){score+=25;reasons.push('Size: in range');}
+      else if(emp>=mn*.6&&emp<=mx*1.4){score+=12;reasons.push('Size: near range');}
     }
   }
-
-  // Geo — weight 20
-  if(cfg.geos.length>0 && cm.country){
+  if(cfg.geos.length>0&&cm.country){
     max+=20;
     const rg=String(row[cm.country]||'').toLowerCase();
     const mg=cfg.geos.find(g=>rg.includes(g.toLowerCase())||g.toLowerCase().includes(rg));
-    if(mg){ score+=20; reasons.push(`Geo: ${mg}`); }
+    if(mg){score+=20;reasons.push('Geo: '+mg);}
   }
-
-  // Revenue — weight 15
   if(cm.revenue){
     max+=15;
     const rv=parseRev(row[cm.revenue]);
-    if(rv>=50e6){ score+=15; reasons.push('Revenue: large'); }
-    else if(rv>=10e6){ score+=10; reasons.push('Revenue: mid-market'); }
-    else if(rv>=1e6){ score+=5; reasons.push('Revenue: SMB'); }
+    if(rv>=50e6){score+=15;reasons.push('Revenue: large');}
+    else if(rv>=10e6){score+=10;reasons.push('Revenue: mid-market');}
+    else if(rv>=1e6){score+=5;reasons.push('Revenue: SMB');}
   }
-
-  // Title / job function — weight 10
-  if(cfg.jobFunctions.length>0 && cm.title){
+  if(cfg.jobFunctions.length>0&&cm.title){
     max+=10;
     const rt=String(row[cm.title]||'').toLowerCase();
     const mt=cfg.jobFunctions.find(jf=>rt.includes(jf.toLowerCase()));
-    if(mt){ score+=10; reasons.push(`Title: ${mt}`); }
+    if(mt){score+=10;reasons.push('Title: '+mt);}
   }
-
-  const pct = max>0 ? Math.round((score/max)*100) : 50;
-  return { score:pct, reasons };
+  const pct=max>0?Math.round((score/max)*100):50;
+  return{score:pct,reasons};
 };
 
-const assignTier = s => s>=70?'Tier 1':s>=40?'Tier 2':'Tier 3';
-const TIER_LBL = {'Tier 1':'High Priority','Tier 2':'Medium Priority','Tier 3':'Low Priority'};
-const TIER_CLR = {'Tier 1':'#166534','Tier 2':'#854d0e','Tier 3':'#991b1b'};
-const TIER_BG  = {'Tier 1':'#dcfce7','Tier 2':'#fef9c3','Tier 3':'#fee2e2'};
-const tierLabel = t => TIER_LBL[t]||t;
+const assignTier=s=>s>=70?'Tier 1':s>=40?'Tier 2':'Tier 3';
+const TLBL={'Tier 1':'High Priority','Tier 2':'Medium Priority','Tier 3':'Low Priority'};
+const tlbl=t=>TLBL[t]||t;
 
-/* Build clean export row — NO numeric score */
-const buildRow = row => {
+const buildRow=row=>{
   const out={};
   Object.keys(row).forEach(k=>{
-    if(k==='_score') return;
-    if(k==='_tier'){ out['Tier']=row[k]; out['Priority Level']=tierLabel(row[k]); return; }
-    if(k==='_reasons'){ out['Fit Reasoning']=row[k]; return; }
+    if(k==='_score')return;
+    if(k==='_tier'){out['Tier']=row[k];out['Priority Level']=tlbl(row[k]);return;}
+    if(k==='_reasons'){out['Fit Reasoning']=row[k];return;}
     out[k]=row[k];
   });
   return out;
 };
 
-/* ─── SHARED UI ─── */
-const TierBadge = ({tier}) => {
-  const cls=tier==='Tier 1'?'tier-1':tier==='Tier 2'?'tier-2':'tier-3';
-  return <span className={`${cls} inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full border whitespace-nowrap`}>{tier} — {tierLabel(tier)}</span>;
+/* ── NORM for dedup ── */
+const norm=s=>String(s||'').toLowerCase().trim().replace(/[.,\s\-&]+/g,' ').trim();
+const normDom=s=>String(s||'').toLowerCase().trim().replace(/^(https?:\/\/)?(www\.)?/,'').replace(/\/.*/,'').replace(/[.\s]+/g,'');
+
+/* ══════════════════════
+   SHARED UI COMPONENTS
+══════════════════════ */
+const TierBadge=({tier})=>{
+  const cls=tier==='Tier 1'?'t1':tier==='Tier 2'?'t2':'t3';
+  return <span className={`${cls} inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full border whitespace-nowrap`}>{tier} — {tlbl(tier)}</span>;
 };
 
-const FileDrop = ({onLoad, file, onClear, label='Drop TAL file here'}) => {
+const FileDrop=({onLoad,file,onClear,label='Drop TAL file here'})=>{
   const [over,setOver]=useState(false);
   const ref=useRef(null);
   const process=f=>{
-    if(!f) return;
+    if(!f)return;
     const r=new FileReader();
     r.onload=e=>{
       try{
         const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
         const ws=wb.Sheets[wb.SheetNames[0]];
         const data=XLSX.utils.sheet_to_json(ws,{defval:''});
-        if(!data.length){ toast('File is empty or unreadable','error'); return; }
+        if(!data.length){toast('File is empty or unreadable','error');return;}
         onLoad({name:f.name,data,headers:Object.keys(data[0]),rowCount:data.length});
-      } catch{ toast('Failed to parse — ensure .xlsx, .xls or .csv','error'); }
+      }catch(err){toast('Parse error — ensure .xlsx/.xls/.csv: '+err.message,'error');}
     };
+    r.onerror=()=>toast('Could not read file','error');
     r.readAsArrayBuffer(f);
   };
-  if(file) return (
+  if(file)return(
     <div className="bg-green-50 border border-green-200 rounded-xl p-3.5 flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center shrink-0"><Icon name="file-check" size={17} className="text-green-600"/></div>
-        <div><p className="text-sm font-bold text-green-800 truncate max-w-[220px]">{file.name}</p><p className="text-xs text-green-600">{file.rowCount.toLocaleString()} accounts · {file.headers.length} columns</p></div>
+        <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center shrink-0 text-green-600"><Ic n="file-check" size={17}/></div>
+        <div><p className="text-sm font-bold text-green-800 truncate max-w-[220px]">{file.name}</p><p className="text-xs text-green-600">{file.rowCount.toLocaleString()} rows · {file.headers.length} columns</p></div>
       </div>
-      <button onClick={onClear} className="text-green-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition"><Icon name="x" size={15}/></button>
+      <button onClick={onClear} className="text-green-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition"><Ic n="x" size={15}/></button>
     </div>
   );
-  return (
-    <div className={`drop-zone rounded-xl p-7 text-center cursor-pointer ${over?'drag-over':''}`}
-      onDragOver={e=>{e.preventDefault();setOver(true)}} onDragLeave={()=>setOver(false)}
+  return(
+    <div className={`dz rounded-xl p-7 text-center cursor-pointer${over?' ov':''}`}
+      onDragOver={e=>{e.preventDefault();setOver(true)}}
+      onDragLeave={()=>setOver(false)}
       onDrop={e=>{e.preventDefault();setOver(false);process(e.dataTransfer.files[0])}}
       onClick={()=>ref.current?.click()}>
       <input ref={ref} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>process(e.target.files[0])}/>
-      <div className="w-11 h-11 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-2.5"><Icon name="upload" size={20} className="text-gray-400"/></div>
+      <div className="w-11 h-11 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-2.5 text-gray-400"><Ic n="upload" size={20}/></div>
       <p className="text-sm font-bold text-gray-700">{label}</p>
       <p className="text-xs text-gray-400 mt-1">Excel (.xlsx / .xls) or CSV</p>
     </div>
   );
 };
 
-const ICPForm = ({cfg,set}) => (
+const ICPForm=({cfg,set})=>(
   <div className="space-y-3.5">
     {[
-      {label:'Target Industries',key:'industries',type:'textarea',ph:'Financial Services\nHealthcare\nTechnology',note:'one per line'},
-      {label:'Job Functions / Titles',key:'jobFunctions',type:'textarea',ph:'VP of Finance\nDirector of IT\nCISO',note:'one per line'},
-    ].map(({label,key,type,ph,note})=>(
+      {label:'Target Industries',key:'industries',type:'textarea',ph:'Financial Services\nHealthcare\nTechnology\nManufacturing',note:'one per line'},
+      {label:'Job Functions / Titles',key:'jobFunctions',type:'textarea',ph:'VP of Finance\nDirector of IT\nCISO\nHead of Operations',note:'one per line'},
+    ].map(({label,key,ph,note})=>(
       <div key={key}>
         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">{label} <span className="text-gray-400 font-normal normal-case">({note})</span></label>
         <textarea value={cfg[key].join('\n')} onChange={e=>set({...cfg,[key]:e.target.value.split('\n').filter(x=>x.trim())})}
-          placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-20"/>
+          placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm resize-none h-20"/>
       </div>
     ))}
     <div className="grid grid-cols-2 gap-3">
-      <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Min Employees</label>
-        <input type="number" value={cfg.minEmp||''} onChange={e=>set({...cfg,minEmp:parseInt(e.target.value)||0})} placeholder="e.g. 100" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
-      <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Max Employees</label>
-        <input type="number" value={cfg.maxEmp||''} onChange={e=>set({...cfg,maxEmp:parseInt(e.target.value)||0})} placeholder="e.g. 5000" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
+      <div>
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Min Employees</label>
+        <input type="number" value={cfg.minEmp||''} onChange={e=>set({...cfg,minEmp:parseInt(e.target.value)||0})} placeholder="e.g. 100" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/>
+      </div>
+      <div>
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Max Employees</label>
+        <input type="number" value={cfg.maxEmp||''} onChange={e=>set({...cfg,maxEmp:parseInt(e.target.value)||0})} placeholder="e.g. 5000" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/>
+      </div>
     </div>
-    <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Geographies <span className="text-gray-400 font-normal normal-case">(comma-separated)</span></label>
-      <input type="text" value={cfg.geos.join(', ')} onChange={e=>set({...cfg,geos:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} placeholder="United States, United Kingdom, Canada" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
-    <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Exclusions <span className="text-gray-400 font-normal normal-case">(comma-separated company names)</span></label>
-      <input type="text" value={cfg.exclusions.join(', ')} onChange={e=>set({...cfg,exclusions:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} placeholder="Competitor A, Competitor B" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
-    <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Account Count <span className="text-gray-400 font-normal normal-case">(0 = no limit)</span></label>
-      <input type="number" value={cfg.targetCount||''} onChange={e=>set({...cfg,targetCount:parseInt(e.target.value)||0})} placeholder="e.g. 300" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
+    <div>
+      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Geographies <span className="text-gray-400 font-normal normal-case">(comma-separated)</span></label>
+      <input type="text" value={cfg.geos.join(', ')} onChange={e=>set({...cfg,geos:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} placeholder="United States, United Kingdom, Canada" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/>
+    </div>
+    <div>
+      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Exclusions <span className="text-gray-400 font-normal normal-case">(comma-separated company names)</span></label>
+      <input type="text" value={cfg.exclusions.join(', ')} onChange={e=>set({...cfg,exclusions:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} placeholder="Competitor A, Competitor B" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/>
+    </div>
+    <div>
+      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Target Account Count <span className="text-gray-400 font-normal normal-case">(0 = no limit)</span></label>
+      <input type="number" value={cfg.targetCount||''} onChange={e=>set({...cfg,targetCount:parseInt(e.target.value)||0})} placeholder="e.g. 300" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/>
+    </div>
   </div>
 );
 
-const SummaryCards = ({results}) => {
+const SumCards=({results})=>{
   const t1=results.filter(r=>r._tier==='Tier 1').length;
   const t2=results.filter(r=>r._tier==='Tier 2').length;
   const t3=results.filter(r=>r._tier==='Tier 3').length;
-  return (
-    <div className="grid grid-cols-4 gap-3 mb-5 fade-in">
-      {[['Total',results.length,'gray-900','white','border-gray-200'],
-        ['Tier 1 — High',t1,'green-700','green-50','border-green-200'],
-        ['Tier 2 — Medium',t2,'yellow-700','yellow-50','border-yellow-200'],
-        ['Tier 3 — Low',t3,'red-700','red-50','border-red-200']
+  return(
+    <div className="grid grid-cols-4 gap-3 mb-5 fi">
+      {[['Total',results.length,'text-gray-900','bg-white','border-gray-200'],
+        ['Tier 1 — High',t1,'text-green-700','bg-green-50','border-green-200'],
+        ['Tier 2 — Medium',t2,'text-yellow-700','bg-yellow-50','border-yellow-200'],
+        ['Tier 3 — Low',t3,'text-red-700','bg-red-50','border-red-200']
       ].map(([lbl,val,tc,bg,bc])=>(
-        <div key={lbl} className={`bg-${bg} rounded-xl p-4 border ${bc} text-center`}>
-          <p className={`text-2xl font-black text-${tc}`}>{val.toLocaleString()}</p>
-          <p className={`text-xs text-${tc} font-semibold mt-1 opacity-80`}>{lbl}</p>
+        <div key={lbl} className={`${bg} rounded-xl p-4 border ${bc} text-center`}>
+          <p className={`text-2xl font-black ${tc}`}>{val.toLocaleString()}</p>
+          <p className={`text-xs ${tc} font-semibold mt-1 opacity-80`}>{lbl}</p>
         </div>
       ))}
     </div>
   );
 };
 
-const ResultsTable = ({results, cols}) => {
+const ResTable=({results,cols})=>{
   const [page,setPage]=useState(0);
-  const PER=25, total=Math.ceil(results.length/PER);
+  const PER=25,total=Math.ceil(results.length/PER);
   useEffect(()=>setPage(0),[results]);
   const rows=results.slice(page*PER,(page+1)*PER);
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden fade-in">
+  return(
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden fi">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead><tr className="bg-gray-50 border-b border-gray-200">
-            <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tier</th>
-            {cols.map(c=><th key={c} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{c}</th>)}
-            <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Fit Reasoning</th>
-          </tr></thead>
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tier</th>
+              {cols.map(c=><th key={c} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{c}</th>)}
+              <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Fit Reasoning</th>
+            </tr>
+          </thead>
           <tbody>
             {rows.map((r,i)=>(
               <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
@@ -304,11 +332,11 @@ const ResultsTable = ({results, cols}) => {
                 <td className="px-4 py-3 text-gray-500 text-xs max-w-[200px]">{r._reasons||'—'}</td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={cols.length+2} className="px-4 py-10 text-center text-gray-400 text-sm">No accounts match this filter</td></tr>}
+            {!rows.length&&<tr><td colSpan={cols.length+2} className="px-4 py-10 text-center text-gray-400 text-sm">No accounts match</td></tr>}
           </tbody>
         </table>
       </div>
-      {total>1 && (
+      {total>1&&(
         <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
           <p className="text-xs text-gray-500">Showing {page*PER+1}–{Math.min((page+1)*PER,results.length)} of {results.length.toLocaleString()}</p>
           <div className="flex gap-2">
@@ -321,106 +349,96 @@ const ResultsTable = ({results, cols}) => {
   );
 };
 
-/* Excel Export Bar */
-const ExportBar = ({results, prefix}) => {
-  if(!results?.length) return null;
+const ExportBar=({results,prefix})=>{
+  if(!results?.length)return null;
   const date=new Date().toISOString().slice(0,10);
-  const go=(filter)=>{
-    const data = filter==='all' ? results : results.filter(r=>r._tier===filter);
-    if(!data.length){ toast(`No ${filter} accounts to export`,'warn'); return; }
-    const suffix=filter==='all'?'All-Tiers':filter.replace(' ','');
-    exportToExcel(data.map(buildRow), `${prefix}_${suffix}_${date}.xlsx`);
+  const go=filter=>{
+    const data=filter==='all'?results:results.filter(r=>r._tier===filter);
+    if(!data.length){toast('No '+filter+' accounts to export','warn');return;}
+    const suf=filter==='all'?'All-Tiers':filter.replace(' ','');
+    exportXL(data.map(buildRow),`${prefix}_${suf}_${date}.xlsx`);
   };
   const t1=results.filter(r=>r._tier==='Tier 1').length;
   const t2=results.filter(r=>r._tier==='Tier 2').length;
-  return (
+  return(
     <div className="mt-4 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center"><Icon name="file-spreadsheet" size={16} className="text-green-700"/></div>
-          <div><p className="text-sm font-bold text-gray-800">Download Excel</p><p className="text-xs text-gray-500">Opens directly in Excel · all tiers pre-coloured</p></div>
+        <div className="flex items-center gap-2 text-green-700">
+          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center shrink-0"><Ic n="file-spreadsheet" size={16}/></div>
+          <div><p className="text-sm font-bold text-gray-800">Download Excel</p><p className="text-xs text-gray-500">Opens directly in Excel · tiers colour-coded</p></div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={()=>go('all')} className="px-4 py-2 text-xs font-bold bg-gray-900 text-white rounded-lg hover:bg-gray-800 flex items-center gap-1.5"><Icon name="download" size={12}/> All Tiers ({results.length.toLocaleString()})</button>
-          <button onClick={()=>go('Tier 1')} className="px-4 py-2 text-xs font-bold bg-green-700 text-white rounded-lg hover:bg-green-800 flex items-center gap-1.5"><Icon name="download" size={12}/> Tier 1 ({t1.toLocaleString()})</button>
-          <button onClick={()=>go('Tier 2')} className="px-4 py-2 text-xs font-bold bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 flex items-center gap-1.5"><Icon name="download" size={12}/> Tier 2 ({t2.toLocaleString()})</button>
+          <button onClick={()=>go('all')} className="px-4 py-2 text-xs font-bold bg-gray-900 text-white rounded-lg hover:bg-gray-800 flex items-center gap-1.5"><Ic n="download" size={12}/> All ({results.length.toLocaleString()})</button>
+          <button onClick={()=>go('Tier 1')} className="px-4 py-2 text-xs font-bold bg-green-700 text-white rounded-lg hover:bg-green-800 flex items-center gap-1.5"><Ic n="download" size={12}/> Tier 1 ({t1.toLocaleString()})</button>
+          <button onClick={()=>go('Tier 2')} className="px-4 py-2 text-xs font-bold bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 flex items-center gap-1.5"><Ic n="download" size={12}/> Tier 2 ({t2.toLocaleString()})</button>
         </div>
       </div>
     </div>
   );
 };
 
-const StepHead = ({n,label,color='blue'}) => (
+const StepH=({n,label,color='blue'})=>(
   <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
     <span className={`w-6 h-6 bg-${color}-600 text-white rounded-full flex items-center justify-center text-xs font-black shrink-0`}>{n}</span>
     {label}
   </h3>
 );
 
-/* ════════════════════════════════════
-   NARROW TAL VIEW
-════════════════════════════════════ */
-const NarrowView = () => {
+/* ════════════════════
+   NARROW TAL
+════════════════════ */
+const NarrowView=()=>{
   const [file,setFile]=useState(null);
   const [cfg,setCfg]=useState({industries:[],minEmp:0,maxEmp:0,geos:[],jobFunctions:[],exclusions:[],targetCount:0});
   const [results,setResults]=useState(null);
   const [filter,setFilter]=useState('all');
   const [cm,setCm]=useState({});
   const [busy,setBusy]=useState(false);
-  const [progress,setProgress]=useState(0);
+  const [prog,setProg]=useState(0);
 
-  useEffect(()=>{
-    if(file){ const m={}; Object.keys(COL_ALIASES).forEach(t=>{const d=detectCol(file.headers,t);if(d)m[t]=d;}); setCm(m); }
-  },[file]);
+  useEffect(()=>{if(file)setCm(buildCM(file.headers));},[file]);
 
-  const run = () => {
-    if(!file){ toast('Upload a TAL file first','error'); return; }
-    setBusy(true); setProgress(0); setResults(null);
-
-    // Process in chunks to keep UI responsive and show progress
-    const CHUNK=200;
-    let scored=[];
-    let idx=0;
-
-    const processChunk = () => {
-      const end=Math.min(idx+CHUNK,file.data.length);
-      for(let i=idx;i<end;i++){
-        const row=file.data[i];
-        const cn=cm.company?String(row[cm.company]||'').toLowerCase():'';
-        if(cfg.exclusions.some(ex=>ex&&cn.includes(ex.toLowerCase()))) continue;
-        const {score,reasons}=scoreAccount(row,cfg,cm);
-        scored.push({...row,_score:score,_tier:assignTier(score),_reasons:reasons.join(' | ')||'Baseline fit'});
-      }
-      idx=end;
-      setProgress(Math.round((idx/file.data.length)*100));
-
-      if(idx<file.data.length){
-        setTimeout(processChunk,0);
-      } else {
-        scored.sort((a,b)=>b._score-a._score);
-        if(cfg.targetCount>0&&scored.length>cfg.targetCount) scored=scored.slice(0,cfg.targetCount);
-        setResults(scored); setFilter('all'); setBusy(false); setProgress(100);
-        const t1=scored.filter(r=>r._tier==='Tier 1').length;
-        const t2=scored.filter(r=>r._tier==='Tier 2').length;
-        const t3=scored.filter(r=>r._tier==='Tier 3').length;
-        toast(`Done: ${scored.length.toLocaleString()} accounts — ${t1} Tier 1 · ${t2} Tier 2 · ${t3} Tier 3`);
-      }
+  const run=()=>{
+    if(!file){toast('Upload a TAL file first','error');return;}
+    setBusy(true);setProg(0);setResults(null);
+    const CHUNK=200;let scored=[];let idx=0;
+    const next=()=>{
+      try{
+        const end=Math.min(idx+CHUNK,file.data.length);
+        for(let i=idx;i<end;i++){
+          const row=file.data[i];
+          const cn=cm.company?norm(row[cm.company]):'';
+          if(cfg.exclusions.some(ex=>ex&&cn.includes(ex.toLowerCase())))continue;
+          const {score,reasons}=scoreRow(row,cfg,cm);
+          scored.push({...row,_score:score,_tier:assignTier(score),_reasons:reasons.join(' | ')||'Baseline fit'});
+        }
+        idx=end;
+        setProg(Math.round(idx/file.data.length*100));
+        if(idx<file.data.length){setTimeout(next,0);}
+        else{
+          scored.sort((a,b)=>b._score-a._score);
+          if(cfg.targetCount>0&&scored.length>cfg.targetCount)scored=scored.slice(0,cfg.targetCount);
+          setResults(scored);setFilter('all');setBusy(false);setProg(100);
+          const t1=scored.filter(r=>r._tier==='Tier 1').length,t2=scored.filter(r=>r._tier==='Tier 2').length,t3=scored.filter(r=>r._tier==='Tier 3').length;
+          toast(`Done: ${scored.length.toLocaleString()} accounts — ${t1} T1 · ${t2} T2 · ${t3} T3`);
+        }
+      }catch(err){setBusy(false);toast('Processing error: '+err.message,'error');}
     };
-    setTimeout(processChunk,0);
+    setTimeout(next,0);
   };
 
   const cols=useMemo(()=>!file?[]:['company','industry','employees','country','revenue','title'].map(t=>cm[t]).filter(Boolean).slice(0,5),[file,cm]);
   const filtered=useMemo(()=>!results?[]:filter==='all'?results:results.filter(r=>r._tier===filter),[results,filter]);
 
-  return (
-    <div className="max-w-5xl mx-auto pb-20 fade-in">
+  return(
+    <div className="max-w-5xl mx-auto pb-20 fi">
       <div className="mb-5">
         <h2 className="text-2xl font-black text-gray-900">Narrow TAL Analysis</h2>
         <p className="text-sm text-gray-500 mt-1">Score and tier your full TAL against ICP parameters. Output as Excel with tier colouring.</p>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4 shadow-sm">
-        <StepHead n="1" label="Upload TAL File"/>
+        <StepH n="1" label="Upload TAL File"/>
         <FileDrop onLoad={setFile} file={file} onClear={()=>{setFile(null);setResults(null);setCm({});}}/>
         {file&&Object.keys(cm).length>0&&(
           <div className="mt-3 flex flex-wrap gap-1.5 items-center">
@@ -431,30 +449,35 @@ const NarrowView = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4 shadow-sm">
-        <StepHead n="2" label="ICP Parameters"/>
+        <StepH n="2" label="Set ICP Parameters"/>
         <ICPForm cfg={cfg} set={setCfg}/>
       </div>
 
-      <button onClick={run} disabled={!file||busy} className="w-full py-4 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-2 text-sm">
-        {busy?<><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span>Scoring {progress}%...</>:<><Icon name="zap" size={17}/>Run TAL Analysis</>}
+      <button onClick={run} disabled={!file||busy}
+        className="w-full py-4 text-white font-bold rounded-xl transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-2 text-sm"
+        style={{background:'var(--pw)'}}>
+        {busy
+          ?<><span className="pd inline-block w-2 h-2 bg-white rounded-full mr-1"></span>Scoring {prog}%...</>
+          :<><Ic n="zap" size={17}/>Run TAL Analysis</>}
       </button>
-      {busy&&<div className="w-full h-1.5 bg-gray-200 rounded-full mb-6 overflow-hidden"><div className="h-full bg-blue-600 rounded-full progress-bar" style={{width:`${progress}%`}}/></div>}
+      {busy&&<div className="w-full h-1.5 bg-gray-200 rounded-full mb-6 overflow-hidden"><div className="h-full bg-blue-600 rounded-full pb" style={{width:prog+'%'}}/></div>}
       {!busy&&<div className="mb-6"/>}
 
       {results&&(
-        <div className="fade-in">
+        <div className="fi">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <StepHead n="3" label="Results" color="green"/>
+            <StepH n="3" label="Results" color="green"/>
             <div className="flex flex-wrap gap-2">
               {['all','Tier 1','Tier 2','Tier 3'].map(t=>{
                 const cnt=t==='all'?results.length:results.filter(r=>r._tier===t).length;
                 const act=filter===t;
-                return <button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${act?t==='all'?'bg-gray-900 text-white':t==='Tier 1'?'bg-green-700 text-white':t==='Tier 2'?'bg-yellow-600 text-white':'bg-red-700 text-white':'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{t==='all'?`All (${results.length})`:` ${t} (${cnt})`}</button>;
+                const activeStyle=act?(t==='all'?'bg-gray-900 text-white':t==='Tier 1'?'bg-green-700 text-white':t==='Tier 2'?'bg-yellow-600 text-white':'bg-red-700 text-white'):'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50';
+                return<button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${activeStyle}`}>{t==='all'?`All (${results.length})`:t+` (${cnt})`}</button>;
               })}
             </div>
           </div>
-          <SummaryCards results={results}/>
-          <ResultsTable results={filtered} cols={cols}/>
+          <SumCards results={results}/>
+          <ResTable results={filtered} cols={cols}/>
           <ExportBar results={results} prefix="Narrowed_TAL"/>
         </div>
       )}
@@ -462,260 +485,473 @@ const NarrowView = () => {
   );
 };
 
-/* ════════════════════════════════════
-   EXPAND TAL VIEW
-════════════════════════════════════ */
-const ExpandView = () => {
-  const [origFile,setOrig]=useState(null);
-  const [expFile,setExp]=useState(null);
+/* ════════════════════
+   EXPAND TAL — LOOKALIKES (v2: single upload, auto-sources lookalikes)
+════════════════════ */
+
+/* Lookalike generation engine:
+   Analyses the uploaded TAL to extract ICP profile (top industries, size range, geos),
+   then generates synthetic lookalike companies based on that profile.
+   These are clearly flagged as "suggested lookalike profiles" for the CM to use
+   as search criteria in their data provider (ZoomInfo, Apollo, Cognism etc.) */
+
+const INDUSTRY_LOOKALIKES={
+  'financial services':['Fintech','Insurance','Banking','Asset Management','Wealth Management','Capital Markets','Credit Unions','Mortgage Lending','Investment Banking','Private Equity'],
+  'technology':['SaaS','Software','Cloud Computing','Cybersecurity','AI/ML','Data Analytics','DevOps','IT Services','Digital Transformation','Enterprise Software'],
+  'healthcare':['Healthtech','Medtech','Pharmaceutical','Biotech','Health Insurance','Hospital Networks','Medical Devices','Digital Health','Life Sciences','Clinical Research'],
+  'manufacturing':['Industrial Automation','Supply Chain','Logistics','Automotive','Aerospace','Chemical Manufacturing','Consumer Goods','Electronics Manufacturing','Heavy Industry','Precision Engineering'],
+  'retail':['E-commerce','D2C Brands','Omnichannel Retail','Grocery','Fashion & Apparel','Consumer Brands','Marketplace Platforms','Retail Tech','Luxury Goods','FMCG'],
+  'professional services':['Management Consulting','Legal Services','Accounting','Staffing & Recruitment','Marketing Agencies','PR & Communications','Business Process Outsourcing','Advisory Services','Executive Search','Training & Development'],
+  'media':['Digital Media','Publishing','Advertising Technology','Content Platforms','Streaming Services','Events & Exhibitions','Sports & Entertainment','Broadcasting','Creative Agencies','Out-of-Home Media'],
+  'education':['EdTech','Corporate Learning','Higher Education','K-12 Technology','Professional Certification','Learning Management','Skills Development','Online Learning','Training Platforms'],
+  'real estate':['PropTech','Commercial Real Estate','Property Management','Real Estate Investment','Facilities Management','Construction Tech','Smart Buildings','Co-working Spaces'],
+  'energy':['CleanTech','Renewable Energy','Oil & Gas Tech','Utilities','Energy Management','Smart Grid','EV Infrastructure','Carbon Management'],
+};
+
+const SIZE_BANDS=[
+  {min:50,max:200,label:'50–200 employees (SMB)'},
+  {min:200,max:1000,label:'200–1,000 employees (Mid-Market Lower)'},
+  {min:1000,max:5000,label:'1,000–5,000 employees (Mid-Market Upper)'},
+  {min:5000,max:20000,label:'5,000–20,000 employees (Enterprise)'},
+  {min:20000,max:Infinity,label:'20,000+ employees (Global Enterprise)'},
+];
+
+const GEO_EXPAND={
+  'united states':['Canada','United Kingdom','Australia','Germany','Netherlands'],
+  'uk':['Ireland','Germany','France','Netherlands','Nordics','Belgium'],
+  'united kingdom':['Ireland','Germany','France','Netherlands','Nordics','Belgium'],
+  'australia':['New Zealand','Singapore','Malaysia','Hong Kong','Japan'],
+  'germany':['Austria','Switzerland','Netherlands','France','Nordics','Belgium'],
+  'canada':['United States','United Kingdom','Australia'],
+};
+
+const generateLookalikes=(talFile,cm,targetCount)=>{
+  if(!talFile||!talFile.data.length)return[];
+
+  // Extract ICP signals from uploaded TAL
+  const industryCount={},countryCount={};
+  let totalEmp=0,empCount=0;
+
+  talFile.data.forEach(row=>{
+    if(cm.industry){const v=String(row[cm.industry]||'').trim();if(v)industryCount[v]=(industryCount[v]||0)+1;}
+    if(cm.country){const v=String(row[cm.country]||'').trim();if(v)countryCount[v]=(countryCount[v]||0)+1;}
+    if(cm.employees){const e=parseEmp(row[cm.employees]);if(e>0){totalEmp+=e;empCount++;}}
+  });
+
+  // Top 3 industries
+  const topInds=Object.entries(industryCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k])=>k);
+  // Top 3 geos
+  const topGeos=Object.entries(countryCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k])=>k);
+  // Avg employee size → find band
+  const avgEmp=empCount>0?Math.round(totalEmp/empCount):500;
+  const band=SIZE_BANDS.find(b=>avgEmp>=b.min&&avgEmp<b.max)||SIZE_BANDS[1];
+
+  // Find lookalike industries
+  const lookalike_inds=new Set();
+  topInds.forEach(ind=>{
+    const lk=ind.toLowerCase();
+    Object.entries(INDUSTRY_LOOKALIKES).forEach(([key,vals])=>{
+      if(lk.includes(key)||key.includes(lk)){vals.forEach(v=>lookalike_inds.add(v));}
+    });
+  });
+  // Remove original industries
+  topInds.forEach(i=>lookalike_inds.delete(i));
+
+  // Find adjacent geos
+  const adj_geos=new Set();
+  topGeos.forEach(g=>{
+    const lk=g.toLowerCase();
+    Object.entries(GEO_EXPAND).forEach(([key,vals])=>{
+      if(lk.includes(key)){vals.forEach(v=>adj_geos.add(v));}
+    });
+  });
+  topGeos.forEach(g=>adj_geos.delete(g));
+
+  // Build lookalike profile rows
+  const profiles=[];
+  const lkIndArr=[...lookalike_inds];
+  const lkGeoArr=[...adj_geos];
+  const originalGeoArr=topGeos.length?topGeos:['United States'];
+  const allGeos=[...new Set([...originalGeoArr,...lkGeoArr.slice(0,3)])];
+
+  // Strategy 1: Same geo, lookalike industries
+  lkIndArr.slice(0,8).forEach((ind,i)=>{
+    profiles.push({
+      'Lookalike Strategy':'Same Geo · Adjacent Industry',
+      'Target Industry':ind,
+      'Employee Size Range':band.label,
+      'Target Geography':originalGeoArr.slice(0,2).join(', '),
+      'Lookalike Basis':topInds.slice(0,2).join(', '),
+      'Suggested Search':'Search for '+ind+' companies with '+band.label+' in '+originalGeoArr.slice(0,2).join('/'),
+      'Priority':i<3?'High':'Medium',
+      '_tier':i<3?'Tier 1':i<6?'Tier 2':'Tier 3',
+      '_score':i<3?85:i<6?60:35,
+      '_reasons':i<3?'Strong industry adjacency':'Adjacent industry match',
+    });
+  });
+
+  // Strategy 2: Adjacent geos, same industries
+  lkGeoArr.slice(0,5).forEach((geo,i)=>{
+    topInds.slice(0,2).forEach(ind=>{
+      profiles.push({
+        'Lookalike Strategy':'Adjacent Geo · Same Industry',
+        'Target Industry':ind,
+        'Employee Size Range':band.label,
+        'Target Geography':geo,
+        'Lookalike Basis':topGeos.slice(0,2).join(', '),
+        'Suggested Search':'Search for '+ind+' companies in '+geo+' with '+band.label,
+        'Priority':i<2?'High':'Medium',
+        '_tier':i<2?'Tier 1':'Tier 2',
+        '_score':i<2?80:55,
+        '_reasons':'Geographic expansion from '+topGeos[0],
+      });
+    });
+  });
+
+  // Strategy 3: Adjacent geo + adjacent industry
+  lkGeoArr.slice(0,3).forEach(geo=>{
+    lkIndArr.slice(0,3).forEach(ind=>{
+      profiles.push({
+        'Lookalike Strategy':'Adjacent Geo · Adjacent Industry',
+        'Target Industry':ind,
+        'Employee Size Range':band.label,
+        'Target Geography':geo,
+        'Lookalike Basis':'Expansion beyond core ICP',
+        'Suggested Search':'Exploratory: '+ind+' in '+geo,
+        'Priority':'Low',
+        '_tier':'Tier 3',
+        '_score':30,
+        '_reasons':'Exploratory expansion segment',
+      });
+    });
+  });
+
+  // Deduplicate profiles and limit to targetCount
+  const seen=new Set();
+  const deduped=profiles.filter(p=>{
+    const key=norm(p['Target Industry'])+':'+norm(p['Target Geography']);
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  });
+
+  deduped.sort((a,b)=>b._score-a._score);
+  return targetCount>0?deduped.slice(0,targetCount):deduped;
+};
+
+const ExpandView=()=>{
+  const [file,setFile]=useState(null);
   const [cfg,setCfg]=useState({industries:[],minEmp:0,maxEmp:0,geos:[],jobFunctions:[],exclusions:[],targetCount:0});
   const [results,setResults]=useState(null);
   const [busy,setBusy]=useState(false);
-  const [progress,setProgress]=useState(0);
+  const [prog,setProg]=useState(0);
   const [cm,setCm]=useState({});
+  const [icpSummary,setIcpSummary]=useState(null);
 
-  useEffect(()=>{
-    if(origFile){ const m={}; Object.keys(COL_ALIASES).forEach(t=>{const d=detectCol(origFile.headers,t);if(d)m[t]=d;}); setCm(m); }
-  },[origFile]);
-
-  const norm=s=>String(s||'').toLowerCase().trim().replace(/[.,\s\-&]+/g,' ').trim();
-  const normDomain=s=>String(s||'').toLowerCase().trim().replace(/^(https?:\/\/)?(www\.)?/,'').replace(/\/.*/,'').replace(/[.\s]+/g,'');
+  useEffect(()=>{if(file)setCm(buildCM(file.headers));},[file]);
 
   const run=()=>{
-    if(!origFile||!expFile){ toast('Upload both files first','error'); return; }
-    setBusy(true); setProgress(5); setResults(null);
+    if(!file){toast('Upload your TAL file first','error');return;}
+    setBusy(true);setProg(10);setResults(null);
 
     setTimeout(()=>{
-      // Build fingerprint set from ALL original TAL rows
-      const keys=new Set();
-      origFile.data.forEach(row=>{
-        if(cm.company){ const n=norm(row[cm.company]); if(n) keys.add(n); }
-        if(cm.website){ const d=normDomain(row[cm.website]); if(d&&d.length>3) keys.add(d); }
-      });
-      setProgress(20);
+      try{
+        // Analyse TAL to extract ICP
+        const industryCount={},countryCount={};
+        let totalEmp=0,empCount=0;
+        file.data.forEach(row=>{
+          if(cm.industry){const v=String(row[cm.industry]||'').trim();if(v)industryCount[v]=(industryCount[v]||0)+1;}
+          if(cm.country){const v=String(row[cm.country]||'').trim();if(v)countryCount[v]=(countryCount[v]||0)+1;}
+          if(cm.employees){const e=parseEmp(row[cm.employees]);if(e>0){totalEmp+=e;empCount++;}}
+        });
+        const topInds=Object.entries(industryCount).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k])=>k);
+        const topGeos=Object.entries(countryCount).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k])=>k);
+        const avgEmp=empCount>0?Math.round(totalEmp/empCount):0;
+        setProg(40);
 
-      // Detect columns on expansion file
-      const ecm={};
-      Object.keys(COL_ALIASES).forEach(t=>{const d=detectCol(expFile.headers,t);if(d)ecm[t]=d;});
+        // Also score the existing TAL accounts
+        const scored=[];
+        file.data.forEach(row=>{
+          const cn=cm.company?norm(row[cm.company]):'';
+          if(cfg.exclusions.some(ex=>ex&&cn.includes(ex.toLowerCase())))return;
+          const {score,reasons}=scoreRow(row,cfg.industries.length>0||cfg.minEmp>0||cfg.geos.length>0?cfg:{
+            industries:topInds.slice(0,3),
+            minEmp:avgEmp>0?Math.round(avgEmp*.5):0,
+            maxEmp:avgEmp>0?Math.round(avgEmp*2):0,
+            geos:topGeos.slice(0,3),
+            jobFunctions:cfg.jobFunctions,
+            exclusions:cfg.exclusions,
+            targetCount:cfg.targetCount,
+          },cm);
+          scored.push({...row,_score:score,_tier:assignTier(score),_reasons:reasons.join(' | ')||'Original TAL account'});
+        });
+        scored.sort((a,b)=>b._score-a._score);
+        setProg(70);
 
-      let dupsRemoved=0;
-      const CHUNK=200;
-      let expanded=[];
-      let idx=0;
+        // Generate lookalike profiles
+        const lookalikes=generateLookalikes(file,cm,cfg.targetCount||50);
+        setProg(90);
 
-      const processChunk=()=>{
-        const end=Math.min(idx+CHUNK,expFile.data.length);
-        for(let i=idx;i<end;i++){
-          const row=expFile.data[i];
-          // Dedup check
-          let dup=false;
-          if(ecm.company){ const n=norm(row[ecm.company]); if(n&&keys.has(n)) dup=true; }
-          if(!dup&&ecm.website){ const d=normDomain(row[ecm.website]); if(d&&d.length>3&&keys.has(d)) dup=true; }
-          if(dup){ dupsRemoved++; continue; }
-          // Exclusions
-          const cn=ecm.company?norm(row[ecm.company]):'';
-          if(cfg.exclusions.some(ex=>ex&&cn.includes(ex.toLowerCase()))){ dupsRemoved++; continue; }
-          const {score,reasons}=scoreAccount(row,cfg,ecm);
-          expanded.push({...row,_score:score,_tier:assignTier(score),_reasons:reasons.join(' | ')||'Expansion candidate'});
-        }
-        idx=end;
-        setProgress(20+Math.round((idx/expFile.data.length)*75));
-
-        if(idx<expFile.data.length){
-          setTimeout(processChunk,0);
-        } else {
-          expanded.sort((a,b)=>b._score-a._score);
-          if(cfg.targetCount>0&&expanded.length>cfg.targetCount) expanded=expanded.slice(0,cfg.targetCount);
-          setResults({accounts:expanded,dupsRemoved,ecm});
-          setBusy(false); setProgress(100);
-          toast(`Done: ${expanded.length.toLocaleString()} net-new accounts · ${dupsRemoved} originals excluded`);
-        }
-      };
-      setTimeout(processChunk,0);
+        setIcpSummary({topInds,topGeos,avgEmp,total:file.data.length});
+        setResults({scored,lookalikes});
+        setBusy(false);setProg(100);
+        toast(`Done — ${scored.length} TAL accounts scored · ${lookalikes.length} lookalike profiles generated`);
+      }catch(err){
+        setBusy(false);
+        toast('Error: '+err.message,'error');
+        console.error(err);
+      }
     },50);
   };
 
-  const cols=useMemo(()=>!results?[]:['company','industry','employees','country','revenue'].map(t=>results.ecm[t]).filter(Boolean).slice(0,5),[results]);
+  const exportLookalikes=()=>{
+    if(!results?.lookalikes?.length){toast('No lookalikes to export','warn');return;}
+    const date=new Date().toISOString().slice(0,10);
+    const data=results.lookalikes.map(r=>({
+      'Lookalike Strategy':r['Lookalike Strategy'],
+      'Target Industry':r['Target Industry'],
+      'Employee Size Range':r['Employee Size Range'],
+      'Target Geography':r['Target Geography'],
+      'Priority':r['Priority'],
+      'Lookalike Basis':r['Lookalike Basis'],
+      'Suggested Search':r['Suggested Search'],
+    }));
+    exportXL(data,`Expanded_TAL_Lookalikes_${date}.xlsx`,'Lookalike Profiles');
+  };
 
-  return (
-    <div className="max-w-5xl mx-auto pb-20 fade-in">
+  const exportScored=()=>{
+    if(!results?.scored?.length){toast('No scored accounts to export','warn');return;}
+    const date=new Date().toISOString().slice(0,10);
+    exportXL(results.scored.map(buildRow),`Expanded_TAL_Scored_${date}.xlsx`,'Scored Accounts');
+  };
+
+  const cols=useMemo(()=>!file?[]:['company','industry','employees','country','revenue'].map(t=>cm[t]).filter(Boolean).slice(0,5),[file,cm]);
+
+  return(
+    <div className="max-w-5xl mx-auto pb-20 fi">
       <div className="mb-5">
         <h2 className="text-2xl font-black text-gray-900">Expand TAL — Lookalikes</h2>
-        <p className="text-sm text-gray-500 mt-1">Find net-new lookalike accounts. All original TAL companies are strictly excluded from the output.</p>
+        <p className="text-sm text-gray-500 mt-1">Upload your current TAL. The tool analyses your ICP profile and generates lookalike company segments to expand your reach.</p>
       </div>
 
       <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-xl mb-4 flex gap-3">
-        <Icon name="shield-check" size={17} className="text-blue-600 mt-0.5 shrink-0"/>
-        <p className="text-sm text-blue-800"><strong>Strict Dedup Protection:</strong> Every company name and domain from File A is excluded from expansion output. Zero overlap guaranteed.</p>
+        <Ic n="info" size={17} cls="text-blue-600 mt-0.5 shrink-0"/>
+        <div className="text-sm text-blue-800">
+          <p className="font-bold mb-1">How it works</p>
+          <p>Upload your <strong>existing TAL</strong> — the tool extracts your top industries, geographies and company size, then generates <strong>lookalike search segments</strong> you can use in ZoomInfo, Apollo, Cognism or any data provider to find net-new accounts with similar profiles.</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        {[
-          {lbl:'A',title:'Original TAL',sub:'(exclusion list)',color:'orange-500',state:origFile,setFn:setOrig,clearFn:()=>{setOrig(null);setResults(null);setCm({});}},
-          {lbl:'B',title:'Expansion Source',sub:'(prospect pool)',color:'purple-500',state:expFile,setFn:setExp,clearFn:()=>{setExp(null);setResults(null);}},
-        ].map(({lbl,title,sub,color,state,setFn,clearFn})=>(
-          <div key={lbl} className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-            <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-              <span className={`w-6 h-6 bg-${color} text-white rounded-full flex items-center justify-center text-xs font-black`}>{lbl}</span>
-              {title} <span className="text-gray-400 font-normal">{sub}</span>
-            </h3>
-            <FileDrop onLoad={setFn} file={state} onClear={clearFn} label={`Upload ${title}`}/>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 gap-4 mb-4">
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+          <StepH n="1" label="Upload Your Current TAL"/>
+          <FileDrop onLoad={setFile} file={file} onClear={()=>{setFile(null);setResults(null);setCm({});setIcpSummary(null);}} label="Drop your TAL file here"/>
+          {file&&Object.keys(cm).length>0&&(
+            <div className="mt-3 flex flex-wrap gap-1.5 items-center">
+              <span className="text-xs text-gray-400 font-semibold">Auto-detected:</span>
+              {Object.entries(cm).map(([t,c])=><span key={t} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">{t}: <em>{c}</em></span>)}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4 shadow-sm">
-        <h3 className="text-sm font-bold text-gray-800 mb-3">ICP Parameters (for scoring expansion accounts)</h3>
+        <StepH n="2" label="ICP Override (Optional)"/>
+        <p className="text-xs text-gray-500 mb-3">Leave blank to auto-detect from your TAL. Fill in to override the ICP for both scoring and lookalike generation.</p>
         <ICPForm cfg={cfg} set={setCfg}/>
       </div>
 
-      <button onClick={run} disabled={!origFile||!expFile||busy} className="w-full py-4 bg-purple-700 text-white font-bold rounded-xl hover:bg-purple-800 transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-2 text-sm">
-        {busy?<><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span>Finding lookalikes {progress}%...</>:<><Icon name="users" size={17}/>Find Lookalike Accounts</>}
+      <button onClick={run} disabled={!file||busy}
+        className="w-full py-4 text-white font-bold rounded-xl transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-2 text-sm"
+        style={{background:'#7c3aed'}}>
+        {busy
+          ?<><span className="pd inline-block w-2 h-2 bg-white rounded-full mr-1"></span>Analysing {prog}%...</>
+          :<><Ic n="sparkles" size={17}/>Analyse TAL &amp; Generate Lookalikes</>}
       </button>
-      {busy&&<div className="w-full h-1.5 bg-gray-200 rounded-full mb-6 overflow-hidden"><div className="h-full bg-purple-600 rounded-full progress-bar" style={{width:`${progress}%`}}/></div>}
+      {busy&&<div className="w-full h-1.5 bg-gray-200 rounded-full mb-6 overflow-hidden"><div className="h-full rounded-full pb" style={{width:prog+'%',background:'#7c3aed'}}/></div>}
       {!busy&&<div className="mb-6"/>}
 
-      {results&&(
-        <div className="fade-in">
-          {results.dupsRemoved>0&&(
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 flex items-center gap-3">
-              <div className="w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center shrink-0"><Icon name="shield-alert" size={17} className="text-orange-600"/></div>
+      {results&&icpSummary&&(
+        <div className="fi space-y-6">
+
+          {/* ICP Summary extracted from TAL */}
+          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl border border-purple-200 p-5">
+            <p className="text-xs font-black text-purple-700 uppercase tracking-wider mb-3 flex items-center gap-2"><Ic n="target" size={14} cls="text-purple-600"/>ICP Profile Extracted from Your TAL</p>
+            <div className="grid grid-cols-3 gap-4 text-sm">
               <div>
-                <p className="text-sm font-bold text-orange-800">{results.dupsRemoved.toLocaleString()} accounts removed (original TAL duplicates + exclusions)</p>
-                <p className="text-xs text-orange-600">Matched on company name and/or domain — guaranteed excluded from output.</p>
+                <p className="text-[10px] font-bold text-purple-500 uppercase mb-1">Top Industries</p>
+                {icpSummary.topInds.slice(0,3).map((i,x)=><p key={x} className="text-purple-900 font-semibold text-xs">{i}</p>)}
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-purple-500 uppercase mb-1">Top Geographies</p>
+                {icpSummary.topGeos.slice(0,3).map((g,x)=><p key={x} className="text-purple-900 font-semibold text-xs">{g}</p>)}
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-purple-500 uppercase mb-1">Avg Company Size</p>
+                <p className="text-purple-900 font-semibold text-xs">{icpSummary.avgEmp>0?icpSummary.avgEmp.toLocaleString()+' employees':'Not detected'}</p>
+                <p className="text-[10px] text-purple-500 mt-1">{icpSummary.total.toLocaleString()} accounts analysed</p>
               </div>
             </div>
+          </div>
+
+          {/* Lookalike Profiles */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2"><Ic n="trending-up" size={16} cls="text-purple-600"/>{results.lookalikes.length} Lookalike Segments Generated</h3>
+              <button onClick={exportLookalikes} className="px-4 py-2 text-xs font-bold bg-purple-700 text-white rounded-lg hover:bg-purple-800 flex items-center gap-1.5">
+                <Ic n="download" size={12}/> Export Lookalike Profiles (.xlsx)
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Use these segments as search criteria in ZoomInfo, Apollo, Cognism or your preferred data provider to source net-new accounts.</p>
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      {['Priority','Strategy','Target Industry','Size Range','Geography','Suggested Search Action'].map(h=>(
+                        <th key={h} className="text-left px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.lookalikes.slice(0,30).map((r,i)=>(
+                      <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.Priority==='High'?'bg-green-100 text-green-700':r.Priority==='Medium'?'bg-yellow-100 text-yellow-700':'bg-gray-100 text-gray-600'}`}>{r.Priority}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r['Lookalike Strategy']}</td>
+                        <td className="px-3 py-2.5 text-xs font-semibold text-gray-800">{r['Target Industry']}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{r['Employee Size Range']}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-700">{r['Target Geography']}</td>
+                        <td className="px-3 py-2.5 text-xs text-blue-700 max-w-[220px]">{r['Suggested Search']}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {results.lookalikes.length>30&&<p className="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">Showing 30 of {results.lookalikes.length} — download Excel for all</p>}
+            </div>
+          </div>
+
+          {/* Scored original TAL */}
+          {results.scored.length>0&&(
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                  <Ic n="check-circle" size={16} cls="text-green-600"/>Your TAL Scored Against ICP ({results.scored.length.toLocaleString()} accounts)
+                </h3>
+                <button onClick={exportScored} className="px-4 py-2 text-xs font-bold bg-gray-900 text-white rounded-lg hover:bg-gray-800 flex items-center gap-1.5">
+                  <Ic n="download" size={12}/> Export Scored TAL (.xlsx)
+                </button>
+              </div>
+              <SumCards results={results.scored}/>
+              <ResTable results={results.scored} cols={cols}/>
+            </div>
           )}
-          <SummaryCards results={results.accounts}/>
-          <ResultsTable results={results.accounts} cols={cols}/>
-          <ExportBar results={results.accounts} prefix="Expanded_TAL_Lookalikes"/>
         </div>
       )}
     </div>
   );
 };
 
-/* ════════════════════════════════════
-   LEAD QA VIEW
-════════════════════════════════════ */
-const LeadQAView = () => {
+/* ════════════════════
+   LEAD QA
+════════════════════ */
+const LeadQAView=()=>{
   const [file,setFile]=useState(null);
-  const [jobFunctions,setJF]=useState('');
+  const [jf,setJF]=useState('');
   const [results,setResults]=useState(null);
   const [busy,setBusy]=useState(false);
   const [cm,setCm]=useState({});
 
-  useEffect(()=>{
-    if(file){ const m={}; Object.keys(COL_ALIASES).forEach(t=>{const d=detectCol(file.headers,t);if(d)m[t]=d;}); setCm(m); }
-  },[file]);
+  useEffect(()=>{if(file)setCm(buildCM(file.headers));},[file]);
 
   const run=()=>{
-    if(!file){ toast('Upload a leads file first','error'); return; }
-    const fns=jobFunctions.split('\n').map(x=>x.trim()).filter(Boolean);
-    if(!fns.length){ toast('Enter at least one job function to validate against','warn'); return; }
+    if(!file){toast('Upload a leads file first','error');return;}
+    const fns=jf.split('\n').map(x=>x.trim()).filter(Boolean);
+    if(!fns.length){toast('Enter at least one job function','warn');return;}
     setBusy(true);
-
     setTimeout(()=>{
-      const out=file.data.map(row=>{
-        const title=String(row[cm.title]||row['Title']||row['Job Title']||'').toLowerCase();
-        const match=fns.find(fn=>title.includes(fn.toLowerCase()));
-        const qualified=!!match;
-        return {
-          ...row,
-          'QA Result': qualified?'YES':'NO',
-          'Job Function Alignment': qualified?match:'No match',
-          '_tier': qualified ? (title.includes('vp')||title.includes('director')||title.includes('head')||title.includes('chief')||title.includes('c-')||title.includes('cxo')?'Tier 1':'Tier 2') : 'Tier 3',
-          '_reasons': qualified?`Title matches: ${match}`:'No function match',
-          '_score': qualified?80:20,
-        };
-      });
-
-      const yes=out.filter(r=>r['QA Result']==='YES').length;
-      const no=out.length-yes;
-      setResults(out); setBusy(false);
-      toast(`QA complete: ${yes} qualifying (${Math.round(yes/out.length*100)}%) · ${no} rejected`);
+      try{
+        const out=file.data.map(row=>{
+          const title=String(row[cm.title]||row['Title']||row['Job Title']||'').toLowerCase();
+          const match=fns.find(fn=>title.includes(fn.toLowerCase()));
+          const qualified=!!match;
+          const seniority=title.match(/vp|director|head|chief|c-suite|cxo|svp|evp|president|partner|ceo|cfo|coo|cto|cmo/)?'Senior':'Other';
+          return{...row,'QA Result':qualified?'YES':'NO','Job Function Alignment':qualified?match:'No match','Seniority Level':seniority,'_tier':qualified?(seniority==='Senior'?'Tier 1':'Tier 2'):'Tier 3','_reasons':qualified?'Title matches: '+match:'No function match','_score':qualified?80:20};
+        });
+        const yes=out.filter(r=>r['QA Result']==='YES').length;
+        setResults(out);setBusy(false);
+        toast(`QA complete: ${yes} qualifying (${Math.round(yes/out.length*100)}%) · ${out.length-yes} rejected`);
+      }catch(err){setBusy(false);toast('Error: '+err.message,'error');}
     },200);
   };
 
   const cols=useMemo(()=>{
-    if(!file) return [];
-    const priority=['company','title','industry','country'];
-    return priority.map(t=>cm[t]).filter(Boolean).slice(0,4);
+    if(!file)return[];
+    return['company','title','industry','country'].map(t=>cm[t]).filter(Boolean).slice(0,4);
   },[file,cm]);
 
   const exportQA=()=>{
-    if(!results) return;
+    if(!results)return;
     const date=new Date().toISOString().slice(0,10);
     const data=results.map(row=>{
       const clean={};
-      Object.keys(row).forEach(k=>{
-        if(k==='_score'||k==='_tier'||k==='_reasons') return;
-        clean[k]=row[k];
-      });
+      Object.keys(row).forEach(k=>{if(!['_score','_tier','_reasons'].includes(k))clean[k]=row[k];});
       return clean;
     });
-    exportToExcel(data,`Lead_QA_${date}.xlsx`,'Lead Validation');
+    exportXL(data,`Lead_QA_${date}.xlsx`,'Lead Validation');
   };
 
-  return (
-    <div className="max-w-4xl mx-auto pb-20 fade-in">
-      <div className="mb-5">
-        <h2 className="text-2xl font-black text-gray-900">Lead QA / Validation</h2>
-        <p className="text-sm text-gray-500 mt-1">Validate lead titles against target job functions. Outputs YES/NO with function alignment.</p>
-      </div>
-
+  return(
+    <div className="max-w-4xl mx-auto pb-20 fi">
+      <div className="mb-5"><h2 className="text-2xl font-black text-gray-900">Lead QA / Validation</h2><p className="text-sm text-gray-500 mt-1">Validate lead titles against target job functions. Outputs YES/NO + function alignment.</p></div>
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4 shadow-sm">
-        <StepHead n="1" label="Upload Leads File"/>
+        <StepH n="1" label="Upload Leads File"/>
         <FileDrop onLoad={setFile} file={file} onClear={()=>{setFile(null);setResults(null);setCm({});}}/>
         {file&&cm.title&&<p className="text-xs text-blue-700 mt-2 font-semibold">✓ Title column detected: <em>{cm.title}</em></p>}
-        {file&&!cm.title&&<p className="text-xs text-amber-600 mt-2 font-semibold">⚠ No title column auto-detected. Ensure a column is named "Title" or "Job Title".</p>}
+        {file&&!cm.title&&<p className="text-xs text-amber-600 mt-2 font-semibold">⚠ No title column detected — ensure a column is named "Title" or "Job Title"</p>}
       </div>
-
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4 shadow-sm">
-        <StepHead n="2" label="Target Job Functions"/>
-        <textarea value={jobFunctions} onChange={e=>setJF(e.target.value)}
-          placeholder="One per line — e.g.:&#10;VP of Finance&#10;Director of Finance&#10;Head of Finance&#10;Chief Financial Officer&#10;CFO&#10;Finance Director"
-          className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-36"/>
-        <p className="text-xs text-gray-400 mt-2">Matching is case-insensitive and partial — "Finance" will match "Director of Finance", "VP Finance", "Finance Manager" etc.</p>
+        <StepH n="2" label="Target Job Functions"/>
+        <textarea value={jf} onChange={e=>setJF(e.target.value)}
+          placeholder={"One per line — e.g.:\nVP of Finance\nDirector of Finance\nHead of Finance\nChief Financial Officer\nCFO"}
+          className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm resize-none h-36"/>
+        <p className="text-xs text-gray-400 mt-2">Matching is case-insensitive and partial — "Finance" matches "VP Finance", "Director of Finance", "Finance Manager" etc.</p>
       </div>
-
-      <button onClick={run} disabled={!file||busy} className="w-full py-4 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-6 text-sm">
-        {busy?<><span className="pulse-dot inline-block w-2 h-2 bg-white rounded-full mr-1"></span>Validating...</>:<><Icon name="check-circle" size={17}/>Run Lead QA</>}
+      <button onClick={run} disabled={!file||busy}
+        className="w-full py-4 text-white font-bold rounded-xl transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg mb-6 text-sm"
+        style={{background:'var(--pw)'}}>
+        {busy?<><span className="pd inline-block w-2 h-2 bg-white rounded-full mr-1"></span>Validating...</>:<><Ic n="check-circle" size={17}/>Run Lead QA</>}
       </button>
-
       {results&&(
-        <div className="fade-in">
-          {/* QA Stats Bar */}
+        <div className="fi">
           <div className="grid grid-cols-3 gap-3 mb-5">
-            {[
-              ['Total Leads',results.length,'gray-900','white','border-gray-200'],
-              ['Qualifying (YES)',results.filter(r=>r['QA Result']==='YES').length,'green-700','green-50','border-green-200'],
-              ['Rejected (NO)',results.filter(r=>r['QA Result']==='NO').length,'red-700','red-50','border-red-200'],
+            {[['Total Leads',results.length,'text-gray-900','bg-white','border-gray-200'],
+              ['Qualifying (YES)',results.filter(r=>r['QA Result']==='YES').length,'text-green-700','bg-green-50','border-green-200'],
+              ['Rejected (NO)',results.filter(r=>r['QA Result']==='NO').length,'text-red-700','bg-red-50','border-red-200'],
             ].map(([lbl,val,tc,bg,bc])=>(
-              <div key={lbl} className={`bg-${bg} rounded-xl p-4 border ${bc} text-center`}>
-                <p className={`text-2xl font-black text-${tc}`}>{val.toLocaleString()}</p>
-                <p className={`text-xs text-${tc} font-semibold mt-1 opacity-80`}>{lbl}</p>
+              <div key={lbl} className={`${bg} rounded-xl p-4 border ${bc} text-center`}>
+                <p className={`text-2xl font-black ${tc}`}>{val.toLocaleString()}</p>
+                <p className={`text-xs ${tc} font-semibold mt-1 opacity-80`}>{lbl}</p>
               </div>
             ))}
           </div>
-
-          {/* Preview table */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="bg-gray-50 border-b border-gray-200">
                   {cols.map(c=><th key={c} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{c}</th>)}
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">QA Result</th>
-                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Alignment</th>
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Function Alignment</th>
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Seniority</th>
                 </tr></thead>
                 <tbody>
                   {results.slice(0,30).map((r,i)=>(
                     <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                       {cols.map(c=><td key={c} className="px-4 py-3 text-gray-700 max-w-[160px] truncate">{r[c]}</td>)}
-                      <td className="px-4 py-3">
-                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${r['QA Result']==='YES'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{r['QA Result']}</span>
-                      </td>
+                      <td className="px-4 py-3"><span className={`text-xs font-bold px-2.5 py-1 rounded-full ${r['QA Result']==='YES'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{r['QA Result']}</span></td>
                       <td className="px-4 py-3 text-xs text-gray-600 max-w-[180px] truncate">{r['Job Function Alignment']}</td>
+                      <td className="px-4 py-3"><span className={`text-xs font-semibold ${r['Seniority Level']==='Senior'?'text-blue-700':'text-gray-500'}`}>{r['Seniority Level']}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -723,14 +959,13 @@ const LeadQAView = () => {
             </div>
             {results.length>30&&<p className="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">Showing 30 of {results.length.toLocaleString()} — download Excel for full list</p>}
           </div>
-
           <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center"><Icon name="file-spreadsheet" size={16} className="text-green-700"/></div>
-              <div><p className="text-sm font-bold text-gray-800">Download Full QA Report</p><p className="text-xs text-gray-500">All {results.length.toLocaleString()} leads with YES/NO + alignment columns</p></div>
+            <div className="flex items-center gap-2 text-green-700">
+              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center shrink-0"><Ic n="file-spreadsheet" size={16}/></div>
+              <div><p className="text-sm font-bold text-gray-800">Download Full QA Report</p><p className="text-xs text-gray-500">All {results.length.toLocaleString()} leads with YES/NO + alignment + seniority</p></div>
             </div>
-            <button onClick={exportQA} className="px-5 py-2.5 bg-gray-900 text-white text-xs font-bold rounded-lg hover:bg-gray-800 flex items-center gap-1.5">
-              <Icon name="download" size={14}/> Download Excel
+            <button onClick={exportQA} className="px-5 py-2.5 bg-gray-900 text-white text-xs font-bold rounded-lg hover:bg-gray-800 flex items-center gap-2">
+              <Ic n="download" size={14}/> Download Excel
             </button>
           </div>
         </div>
@@ -739,17 +974,17 @@ const LeadQAView = () => {
   );
 };
 
-/* ════════════════════════════════════
-   SWEET SPOT GENERATOR
-════════════════════════════════════ */
-const SweetSpotView = () => {
+/* ════════════════════
+   SWEET SPOT
+════════════════════ */
+const SweetSpotView=()=>{
   const [inp,setInp]=useState({product:'',client:'',painPoints:'',personas:'',competitors:'',industries:'',companySize:'',regions:'',objective:''});
   const [result,setResult]=useState(null);
   const u=(f,v)=>setInp(p=>({...p,[f]:v}));
 
   const generate=()=>{
-    if(!inp.product&&!inp.client){ toast('Enter the product or client name','error'); return; }
-    const lbl=inp.client?`${inp.product} (${inp.client})`:inp.product;
+    if(!inp.product&&!inp.client){toast('Enter the product or client name','error');return;}
+    const lbl=inp.client?inp.product+' ('+inp.client+')':inp.product;
     const personas=inp.personas.split('\n').filter(Boolean);
     const pains=inp.painPoints.split('\n').filter(Boolean);
     const inds=inp.industries.split(',').map(x=>x.trim()).filter(Boolean);
@@ -763,7 +998,7 @@ const SweetSpotView = () => {
   };
 
   const exportICP=()=>{
-    if(!result) return;
+    if(!result)return;
     const rows=[
       {Field:'Product / Client',Value:result.lbl},
       {Field:'Sweet Spot',Value:result.sweetSpot},
@@ -776,13 +1011,13 @@ const SweetSpotView = () => {
       {Field:'Competitors to Exclude',Value:result.excl.join('; ')},
       {Field:'Campaign Objective',Value:inp.objective||'Lead generation'},
     ];
-    exportToExcel(rows,`Sweet_Spot_ICP_${result.lbl.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`,'ICP Profile');
+    exportXL(rows,`Sweet_Spot_ICP_${result.lbl.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`,'ICP Profile');
   };
 
   const copyPrompt=()=>{
     const p=`You are a senior B2B ABM Campaign Strategist. Define the sweet spot and generate optimal targeting parameters.
 
-Product/Client: ${inp.product}${inp.client?` | Client: ${inp.client}`:''}
+Product/Client: ${inp.product}${inp.client?' | Client: '+inp.client:''}
 Campaign Objective: ${inp.objective||'Lead generation'}
 Key Pain Points:
 ${inp.painPoints||'[Add pain points]'}
@@ -801,42 +1036,46 @@ Output:
 5. 3–5 proof points
 6. Recommended TAL size and tier distribution %
 7. Exclusion list with reasoning`;
-    navigator.clipboard.writeText(p).then(()=>toast('Prompt copied!')).catch(()=>{ const ta=document.createElement('textarea');ta.value=p;ta.style.cssText='position:fixed;left:-9999px';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);toast('Prompt copied!'); });
+    navigator.clipboard.writeText(p).catch(()=>{
+      const ta=document.createElement('textarea');ta.value=p;ta.style.cssText='position:fixed;left:-9999px';
+      document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+    });
+    toast('Prompt copied!');
   };
 
-  return (
-    <div className="max-w-3xl mx-auto pb-20 fade-in">
+  return(
+    <div className="max-w-3xl mx-auto pb-20 fi">
       <div className="mb-5"><h2 className="text-2xl font-black text-gray-900">Sweet Spot Generator</h2><p className="text-sm text-gray-500 mt-1">Map product value to market need. Export ICP as Excel or copy as AI prompt.</p></div>
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4 shadow-sm space-y-3.5">
         <div className="grid grid-cols-2 gap-3">
           {[{f:'product',lbl:'Product / Solution',ph:'e.g. Adobe Experience Cloud'},{f:'client',lbl:'Client Name (optional)',ph:'e.g. Promowise'}].map(({f,lbl,ph})=>(
             <div key={f}><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">{lbl}</label>
-              <input value={inp[f]} onChange={e=>u(f,e.target.value)} placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
+              <input value={inp[f]} onChange={e=>u(f,e.target.value)} placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/></div>
           ))}
         </div>
         <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Campaign Objective</label>
-          <input value={inp.objective} onChange={e=>u('objective',e.target.value)} placeholder="e.g. Generate 200 MQLs, expand into mid-market" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
-        {[{f:'painPoints',lbl:'Key Pain Points',ph:'Fragmented customer data\nLow marketing ROI visibility\nManual reporting processes'},{f:'personas',lbl:'Target Personas',ph:'VP of Marketing\nDirector of Digital\nCMO'}].map(({f,lbl,ph})=>(
+          <input value={inp.objective} onChange={e=>u('objective',e.target.value)} placeholder="e.g. Generate 200 MQLs, expand into mid-market" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/></div>
+        {[{f:'painPoints',lbl:'Key Pain Points',ph:'Fragmented customer data\nLow marketing ROI visibility'},{f:'personas',lbl:'Target Personas',ph:'VP of Marketing\nDirector of Digital\nCMO'}].map(({f,lbl,ph})=>(
           <div key={f}><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">{lbl} <span className="text-gray-400 font-normal normal-case">(one per line)</span></label>
-            <textarea value={inp[f]} onChange={e=>u(f,e.target.value)} placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none h-20"/></div>
+            <textarea value={inp[f]} onChange={e=>u(f,e.target.value)} placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm resize-none h-20"/></div>
         ))}
         <div className="grid grid-cols-3 gap-3">
           {[{f:'industries',lbl:'Industries',ph:'SaaS, Fintech, Healthcare'},{f:'companySize',lbl:'Company Size',ph:'200–5000 emp'},{f:'regions',lbl:'Regions',ph:'US, UK, ANZ'}].map(({f,lbl,ph})=>(
             <div key={f}><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">{lbl}</label>
-              <input value={inp[f]} onChange={e=>u(f,e.target.value)} placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
+              <input value={inp[f]} onChange={e=>u(f,e.target.value)} placeholder={ph} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/></div>
           ))}
         </div>
         <div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Competitors to Exclude</label>
-          <input value={inp.competitors} onChange={e=>u('competitors',e.target.value)} placeholder="Salesforce, HubSpot, Marketo" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>
+          <input value={inp.competitors} onChange={e=>u('competitors',e.target.value)} placeholder="Salesforce, HubSpot, Marketo" className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm"/></div>
       </div>
       <div className="flex gap-3 mb-6">
-        <button onClick={generate} className="flex-1 py-3.5 bg-[var(--pw-primary)] text-white font-bold rounded-xl hover:bg-blue-900 transition-all flex items-center justify-center gap-2 shadow-lg text-sm"><Icon name="target" size={17}/>Generate Sweet Spot</button>
-        <button onClick={copyPrompt} className="px-5 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg text-sm"><Icon name="copy" size={15}/>Copy AI Prompt</button>
+        <button onClick={generate} className="flex-1 py-3.5 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg text-sm" style={{background:'var(--pw)'}}><Ic n="target" size={17}/>Generate Sweet Spot</button>
+        <button onClick={copyPrompt} className="px-5 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg text-sm"><Ic n="copy" size={15}/>Copy AI Prompt</button>
       </div>
       {result&&(
-        <div className="space-y-4 fade-in">
+        <div className="space-y-4 fi">
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-5">
-            <p className="text-xs font-black text-blue-700 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Icon name="target" size={13} className="text-blue-600"/>Sweet Spot</p>
+            <p className="text-xs font-black text-blue-700 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Ic n="target" size={13} cls="text-blue-600"/>Sweet Spot</p>
             <p className="text-gray-900 font-semibold leading-relaxed text-sm">{result.sweetSpot}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
@@ -848,12 +1087,12 @@ Output:
             </div>
           </div>
           <div className="bg-green-50 rounded-2xl border border-green-200 p-5">
-            <p className="text-xs font-black text-green-700 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Icon name="message-circle" size={13} className="text-green-600"/>Hook Message</p>
+            <p className="text-xs font-black text-green-700 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Ic n="message-circle" size={13} cls="text-green-600"/>Hook Message</p>
             <p className="text-green-900 font-semibold leading-relaxed italic text-sm">"{result.hook}"</p>
           </div>
           <div className="flex justify-end">
             <button onClick={exportICP} className="px-5 py-2.5 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-gray-800 flex items-center gap-2">
-              <Icon name="download" size={13}/> Export ICP as Excel
+              <Ic n="download" size={13}/> Export ICP as Excel
             </button>
           </div>
         </div>
@@ -862,9 +1101,9 @@ Output:
   );
 };
 
-/* ════════════════════════════════════
+/* ════════════════════
    PROMPT LIBRARY
-════════════════════════════════════ */
+════════════════════ */
 const PROMPTS=[
   {id:'tal-narrow',cat:'TAL Creation',tag:'TAL',title:'TAL Narrowing (AI Prompt)',desc:'Use in any AI to narrow a TAL with correct output rules.',
    prompt:`You are a B2B campaign targeting specialist. I am uploading a TAL. Score and tier each account.
@@ -1036,16 +1275,16 @@ const PromptLib=()=>{
   const filtered=useMemo(()=>PROMPTS.filter(p=>(cat==='All'||p.cat===cat)&&(!q||[p.title,p.desc,p.tag,p.cat].some(f=>f.toLowerCase().includes(q.toLowerCase())))),[q,cat]);
   const copy=(p,id)=>{
     navigator.clipboard.writeText(p).catch(()=>{const ta=document.createElement('textarea');ta.value=p;ta.style.cssText='position:fixed;left:-9999px';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);});
-    setCopied(id); toast('Prompt copied!'); setTimeout(()=>setCopied(null),2500);
+    setCopied(id);toast('Prompt copied!');setTimeout(()=>setCopied(null),2500);
   };
-  return (
-    <div className="max-w-4xl mx-auto pb-20 fade-in">
+  return(
+    <div className="max-w-4xl mx-auto pb-20 fi">
       <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div><h2 className="text-2xl font-black text-gray-900">Prompt Library</h2><p className="text-sm text-gray-500 mt-1">{PROMPTS.length} playbook prompts — copy into any AI assistant</p></div>
-        <div className="relative"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search..." className="pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-48"/><Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/></div>
+        <div className="relative"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search..." className="pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm w-48"/><Ic n="search" size={14} cls="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/></div>
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
-        {PCATS.map(c=><button key={c} onClick={()=>setCat(c)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${cat===c?'bg-[var(--pw-primary)] text-white':'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{c}{c!=='All'&&` (${PROMPTS.filter(p=>p.cat===c).length})`}</button>)}
+        {PCATS.map(c=><button key={c} onClick={()=>setCat(c)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${cat===c?'text-white':'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`} style={cat===c?{background:'var(--pw)'}:{}}>{c}{c!=='All'&&` (${PROMPTS.filter(p=>p.cat===c).length})`}</button>)}
       </div>
       <div className="space-y-2">
         {filtered.map(p=>(
@@ -1056,108 +1295,110 @@ const PromptLib=()=>{
                 <div className="min-w-0"><h3 className="text-sm font-bold text-gray-900">{p.title}</h3><p className="text-xs text-gray-500 truncate">{p.desc}</p></div>
               </div>
               <div className="flex items-center gap-2 ml-3 shrink-0">
-                <button onClick={e=>{e.stopPropagation();copy(p.prompt,p.id);}} className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1 transition-all ${copiedId===p.id?'bg-green-100 text-green-700':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}><Icon name={copiedId===p.id?'check':'copy'} size={12}/>{copiedId===p.id?'Copied':'Copy'}</button>
-                <Icon name={open===p.id?'chevron-up':'chevron-down'} size={15} className="text-gray-400"/>
+                <button onClick={e=>{e.stopPropagation();copy(p.prompt,p.id);}} className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1 transition-all ${copiedId===p.id?'bg-green-100 text-green-700':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}><Ic n={copiedId===p.id?'check':'copy'} size={12}/>{copiedId===p.id?'Copied':'Copy'}</button>
+                <Ic n={open===p.id?'chevron-up':'chevron-down'} size={15} cls="text-gray-400"/>
               </div>
             </div>
-            {open===p.id&&<div className="border-t border-gray-100 px-4 pb-4 pt-3 fade-in"><pre className="bg-gray-50 border border-gray-100 rounded-lg p-3.5 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed overflow-auto max-h-56">{p.prompt}</pre></div>}
+            {open===p.id&&<div className="border-t border-gray-100 px-4 pb-4 pt-3 fi"><pre className="bg-gray-50 border border-gray-100 rounded-lg p-3.5 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed overflow-auto max-h-56">{p.prompt}</pre></div>}
           </div>
         ))}
-        {!filtered.length&&<div className="text-center py-10 text-gray-400"><Icon name="search" size={28} className="mx-auto mb-2 text-gray-200"/><p className="text-sm">No prompts match</p></div>}
+        {!filtered.length&&<div className="text-center py-10 text-gray-400"><Ic n="search" size={28} cls="mx-auto mb-2 text-gray-200"/><p className="text-sm">No prompts match</p></div>}
       </div>
     </div>
   );
 };
 
-/* ════════════════════════════════════
+/* ════════════════════
    GOVERNANCE
-════════════════════════════════════ */
+════════════════════ */
 const GovView=()=>(
-  <div className="max-w-2xl mx-auto py-10 fade-in">
+  <div className="max-w-2xl mx-auto py-10 fi">
     <div className="text-center mb-8">
-      <div className="w-14 h-14 bg-white rounded-2xl shadow-lg flex items-center justify-center mx-auto mb-3 border border-gray-100"><Icon name="shield-check" size={28} className="text-[var(--pw-pink)]"/></div>
+      <div className="w-14 h-14 bg-white rounded-2xl shadow-lg flex items-center justify-center mx-auto mb-3 border border-gray-100 text-pink-600"><Ic n="shield-check" size={28}/></div>
       <h3 className="text-2xl font-black text-gray-900 mb-1">Governance & Feedback</h3>
       <p className="text-gray-500 text-sm">Help us improve — your feedback drives the next iteration.</p>
     </div>
     <div className="grid grid-cols-2 gap-4 mb-6">
       <a href="https://docs.google.com/forms/d/1hBm4pdNKn97g0f_e_rSAYBklHU5tqpv1b8LmtlDVFe8/edit" target="_blank" rel="noopener noreferrer" className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all border border-gray-200 text-center block group">
-        <div className="mx-auto w-11 h-11 bg-blue-50 rounded-xl flex items-center justify-center text-[var(--pw-primary)] mb-2.5 group-hover:bg-[var(--pw-primary)] group-hover:text-white transition-colors"><Icon name="message-square" size={20}/></div>
+        <div className="mx-auto w-11 h-11 bg-blue-50 rounded-xl flex items-center justify-center text-blue-700 mb-2.5 group-hover:bg-blue-700 group-hover:text-white transition-colors"><Ic n="message-square" size={20}/></div>
         <h4 className="font-bold text-gray-900 mb-1 text-sm">Feature Feedback</h4><p className="text-xs text-gray-500">Suggest improvements</p>
       </a>
       <a href="https://forms.clickup.com/1230273/f/15he1-166877/5LYHZQJZWRN5U8C86G" target="_blank" rel="noopener noreferrer" className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all border border-gray-200 text-center block group">
-        <div className="mx-auto w-11 h-11 bg-orange-50 rounded-xl flex items-center justify-center text-orange-600 mb-2.5 group-hover:bg-orange-600 group-hover:text-white transition-colors"><Icon name="alert-triangle" size={20}/></div>
+        <div className="mx-auto w-11 h-11 bg-orange-50 rounded-xl flex items-center justify-center text-orange-600 mb-2.5 group-hover:bg-orange-600 group-hover:text-white transition-colors"><Ic n="alert-triangle" size={20}/></div>
         <h4 className="font-bold text-gray-900 mb-1 text-sm">Report a Bug</h4><p className="text-xs text-gray-500">Log issues via ClickUp</p>
       </a>
     </div>
     <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
-      <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Icon name="check-circle" size={15} className="text-green-600"/>v5.1 — What Changed</h4>
+      <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 text-green-700"><Ic n="check-circle" size={15}/>v5.2 — What Changed</h4>
       <ul className="space-y-2 text-sm text-gray-600">
-        {['100% client-side — no API calls, no CORS errors, works on GitHub Pages and any static host',
-          'Output is Excel (.xlsx) — opens directly in Excel, not CSV',
-          'Progress bar while scoring large lists (handles 5,000+ accounts)',
-          'Lead QA tab — validate titles against job functions, export full report',
-          'Strict dedup on TAL expansion — zero overlap guaranteed',
-          'Tier 1/2/3 + High/Medium/Low labels only — no numeric scores shown'
-        ].map(t=><li key={t} className="flex gap-2"><Icon name="check" size={13} className="text-green-600 mt-0.5 shrink-0"/>{t}</li>)}
+        {[
+          'Fixed: blank screen after Run Analysis (replaced external Lucide CDN with inline SVG icons)',
+          'Expand TAL rebuilt: single TAL upload — tool auto-extracts ICP and generates lookalike segments',
+          'Lookalike output: adjacent industries + new geographies as search-ready profiles for ZoomInfo/Apollo/Cognism',
+          'Expand TAL also scores your existing TAL accounts against the extracted ICP',
+          '100% client-side — no API calls, no CORS errors',
+          'Excel (.xlsx) output on all exports',
+        ].map(t=><li key={t} className="flex gap-2"><Ic n="check" size={13} cls="text-green-600 mt-0.5 shrink-0"/>{t}</li>)}
       </ul>
     </div>
   </div>
 );
 
-/* ════════════════════════════════════
+/* ════════════════════
    SIDEBAR + APP SHELL
-════════════════════════════════════ */
-const SideItem=({label,icon,active,onClick,badge,highlight})=>(
-  <div onClick={onClick} className={`group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg cursor-pointer transition-all duration-150 ${active?'bg-blue-50 text-[var(--pw-primary)] font-bold border-l-4 border-[var(--pw-primary)]':'text-gray-500 hover:bg-gray-100 hover:text-gray-800 border-l-4 border-transparent'}`}>
-    <Icon name={icon} className={active?'text-[var(--pw-primary)]':'text-gray-400 group-hover:text-gray-600'} size={17}/>
+════════════════════ */
+const SideItem=({label,icon,active,onClick,badge})=>(
+  <div onClick={onClick} className={`group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg cursor-pointer transition-all ${active?'bg-blue-50 font-bold border-l-4':'text-gray-500 hover:bg-gray-100 hover:text-gray-800 border-l-4 border-transparent'}`}
+    style={active?{color:'var(--pw)',borderLeftColor:'var(--pw)'}:{}}>
+    <Ic n={icon} size={17} cls={active?'':'text-gray-400 group-hover:text-gray-600'}/>
     <span className="text-sm flex-1">{label}</span>
-    {badge&&<span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${highlight?'bg-[var(--pw-primary)] text-white':'bg-blue-100 text-blue-700'}`}>{badge}</span>}
+    {badge&&<span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${active?'bg-blue-100 text-blue-700':'bg-gray-100 text-gray-500'}`}>{badge}</span>}
   </div>
 );
 
 const SECS={
-  'narrow': {lbl:'Narrow TAL',icon:'filter',badge:'Core',g:'tools'},
-  'expand': {lbl:'Expand TAL',icon:'users',badge:'Core',g:'tools'},
-  'leadqa': {lbl:'Lead QA',icon:'check-circle',badge:null,g:'tools'},
-  'sweet':  {lbl:'Sweet Spot Gen',icon:'target',badge:null,g:'tools'},
-  'prompts':{lbl:'Prompt Library',icon:'book-open',badge:'12',g:'resources'},
-  'gov':    {lbl:'Governance',icon:'shield-check',badge:null,g:'resources'},
+  narrow:{lbl:'Narrow TAL',icon:'filter',badge:'Core',g:'tools'},
+  expand:{lbl:'Expand TAL',icon:'users',badge:'Core',g:'tools'},
+  leadqa:{lbl:'Lead QA',icon:'check-circle',badge:null,g:'tools'},
+  sweet:{lbl:'Sweet Spot Gen',icon:'target',badge:null,g:'tools'},
+  prompts:{lbl:'Prompt Library',icon:'book-open',badge:'12',g:'resources'},
+  gov:{lbl:'Governance',icon:'shield-check',badge:null,g:'resources'},
 };
 
 const App=()=>{
   const [sec,setSec]=useState('narrow');
   const s=SECS[sec];
-  return (
-    <div className="flex h-screen w-full overflow-hidden">
-      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col shadow-sm z-20 shrink-0">
-        <div className="px-5 pt-5 pb-4 border-b border-gray-100">
-          <div className="flex items-center gap-2 mb-0.5">
-            <div className="w-7 h-7 bg-[var(--pw-primary)] rounded-lg flex items-center justify-center"><Icon name="zap" size={14} className="text-white"/></div>
-            <h1 className="text-base font-extrabold text-[var(--pw-primary)] tracking-tight">Promowise TAL</h1>
+  return(
+    <div style={{display:'flex',height:'100vh',width:'100%',overflow:'hidden'}}>
+      <aside style={{width:240,background:'#fff',borderRight:'1px solid #e5e7eb',display:'flex',flexDirection:'column',flexShrink:0}}>
+        <div style={{padding:'20px 20px 14px',borderBottom:'1px solid #f3f4f6'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
+            <div style={{width:28,height:28,background:'var(--pw)',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}><Ic n="zap" size={14}/></div>
+            <span style={{fontWeight:800,fontSize:15,color:'var(--pw)',letterSpacing:'-0.02em'}}>Promowise TAL</span>
           </div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold ml-9">Campaign Ops Toolkit</p>
+          <p style={{fontSize:10,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:700,marginLeft:36}}>Campaign Ops Toolkit</p>
         </div>
-        <nav className="flex-1 overflow-y-auto py-3 space-y-0.5">
-          <p className="sidebar-lbl">Targeting Tools</p>
+        <nav style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+          <p className="slbl">Targeting Tools</p>
           {Object.entries(SECS).filter(([,v])=>v.g==='tools').map(([k,v])=><SideItem key={k} label={v.lbl} icon={v.icon} active={sec===k} onClick={()=>setSec(k)} badge={v.badge}/>)}
-          <p className="sidebar-lbl mt-2">Resources</p>
+          <p className="slbl" style={{marginTop:8}}>Resources</p>
           {Object.entries(SECS).filter(([,v])=>v.g==='resources').map(([k,v])=><SideItem key={k} label={v.lbl} icon={v.icon} active={sec===k} onClick={()=>setSec(k)} badge={v.badge}/>)}
         </nav>
-        <div className="p-4 border-t border-gray-200">
-          <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 mb-2">
-            <p className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Icon name="lock" size={11}/>Fully client-side</p>
-            No data leaves your browser. All processing &amp; Excel export happen locally.
+        <div style={{padding:16,borderTop:'1px solid #e5e7eb'}}>
+          <div style={{background:'#f9fafb',borderRadius:8,padding:12,fontSize:11,color:'#6b7280',marginBottom:8}}>
+            <p style={{fontWeight:700,color:'#374151',marginBottom:4,display:'flex',alignItems:'center',gap:4}}><Ic n="lock" size={11}/>Fully client-side</p>
+            No data leaves your browser. All processing and Excel export happen locally.
           </div>
-          <div className="text-[10px] text-gray-400 text-center font-medium">v5.1 · Promowise Campaign Ops</div>
+          <p style={{fontSize:10,color:'#9ca3af',textAlign:'center',fontWeight:600}}>v5.2 · Promowise Campaign Ops</p>
         </div>
       </aside>
-      <main className="flex-1 flex flex-col overflow-hidden bg-[var(--bg-slate)]">
-        <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-3 shrink-0 shadow-sm">
-          <div className="p-1.5 rounded-lg bg-[var(--pw-primary-light)] text-[var(--pw-primary)]"><Icon name={s.icon} size={16}/></div>
-          <h2 className="text-sm font-bold text-gray-800">{s.lbl}</h2>
-          <span className="ml-auto xl-badge">XLSX Output</span>
+      <main style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',background:'var(--bg)'}}>
+        <header style={{background:'#fff',borderBottom:'1px solid #e5e7eb',padding:'10px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0,boxShadow:'0 1px 3px rgba(0,0,0,.06)'}}>
+          <div style={{padding:6,borderRadius:8,background:'var(--pwl)',color:'var(--pw)'}}><Ic n={s.icon} size={16}/></div>
+          <span style={{fontSize:14,fontWeight:700,color:'#1f2937'}}>{s.lbl}</span>
+          <span className="xlb" style={{marginLeft:'auto'}}>XLSX Output</span>
         </header>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+        <div style={{flex:1,overflowY:'auto',overflowX:'hidden',padding:24}}>
           {sec==='narrow'  && <NarrowView/>}
           {sec==='expand'  && <ExpandView/>}
           {sec==='leadqa'  && <LeadQAView/>}
